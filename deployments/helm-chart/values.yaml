@@ -37,7 +37,15 @@ controller:
     # name: nginx-config
 
     ## The entries of the ConfigMap for customizing NGINX configuration.
-    entries: {}
+    entries:
+      stream-snippets: |
+        upstream znc-tcp {
+            server znc.default.svc.cluster.local:7212;
+        }
+        server {
+            listen 7212;
+            proxy_pass znc-tcp;
+        }
 
   ## It is recommended to use your own TLS certificates and keys
   defaultTLS:
@@ -52,7 +60,7 @@ controller:
     ## The secret with a TLS certificate and key for the default HTTPS server.
     ## The value must follow the following format: `<namespace>/<name>`.
     ## Used as an alternative to specifying a certificate and key using `controller.defaultTLS.cert` and `controller.defaultTLS.key` parameters.
-    secret: #<namespace>/<secret_name>
+    secret: default/experimental-systems-tls-k7462mf62f
 
   wildcardTLS:
     ## The base64-encoded TLS certificate for every Ingress host that has TLS enabled but no secret specified.
@@ -66,7 +74,7 @@ controller:
     ## The secret with a TLS certificate and key for every Ingress host that has TLS enabled but no secret specified.
     ## The value must follow the following format: `<namespace>/<name>`.
     ## Used as an alternative to specifying a certificate and key using `controller.wildcardTLS.cert` and `controller.wildcardTLS.key` parameters.
-    secret: #<namespace>/<secret_name>
+    secret: default/experimental-systems-tls
 
   ## The node selector for pod assignment for the Ingress controller pods.
   nodeSelector: {}
@@ -164,7 +172,11 @@ controller:
       targetPort: 443
 
     ## A list of custom ports to expose through the Ingress controller service. Follows the conventional Kubernetes yaml syntax for service ports.
-    customPorts: []
+    customPorts:
+      - port: 7212
+        targetPort: 7212
+        protocol: TCP
+        name: znc
 
   serviceAccount:
     ## The name of the service account of the Ingress controller pods. Used for RBAC.
