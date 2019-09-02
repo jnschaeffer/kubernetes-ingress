@@ -10,7 +10,6 @@ import (
 )
 
 func TestValidateVirtualServer(t *testing.T) {
-	var keepalive = 32
 	virtualServer := v1alpha1.VirtualServer{
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:      "cafe",
@@ -27,7 +26,9 @@ func TestValidateVirtualServer(t *testing.T) {
 					Service:   "service-1",
 					LBMethod:  "random",
 					Port:      80,
-					Keepalive: &keepalive,
+					MaxFails:  createPointerFromInt(8),
+					MaxConns:  createPointerFromInt(16),
+					Keepalive: createPointerFromInt(32),
 				},
 				{
 					Name:    "second",
@@ -133,19 +134,26 @@ func TestValidateUpstreams(t *testing.T) {
 		{
 			upstreams: []v1alpha1.Upstream{
 				{
-					Name:    "upstream1",
-					Service: "test-1",
-					Port:    80,
+					Name:                     "upstream1",
+					Service:                  "test-1",
+					Port:                     80,
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
+					MaxConns:                 createPointerFromInt(16),
 				},
 				{
-					Name:    "upstream2",
-					Service: "test-2",
-					Port:    80,
+					Name:                     "upstream2",
+					Service:                  "test-2",
+					Port:                     80,
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
 				},
 			},
 			expectedUpstreamNames: map[string]sets.Empty{
-				"upstream1": sets.Empty{},
-				"upstream2": sets.Empty{},
+				"upstream1": {},
+				"upstream2": {},
 			},
 			msg: "2 valid upstreams",
 		},
@@ -171,9 +179,12 @@ func TestValidateUpstreamsFails(t *testing.T) {
 		{
 			upstreams: []v1alpha1.Upstream{
 				{
-					Name:    "@upstream1",
-					Service: "test-1",
-					Port:    80,
+					Name:                     "@upstream1",
+					Service:                  "test-1",
+					Port:                     80,
+					ProxyNextUpstream:        "http_502",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
 				},
 			},
 			expectedUpstreamNames: sets.String{},
@@ -182,46 +193,134 @@ func TestValidateUpstreamsFails(t *testing.T) {
 		{
 			upstreams: []v1alpha1.Upstream{
 				{
-					Name:    "upstream1",
-					Service: "@test-1",
-					Port:    80,
+					Name:                     "upstream1",
+					Service:                  "@test-1",
+					Port:                     80,
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
 				},
 			},
 			expectedUpstreamNames: map[string]sets.Empty{
-				"upstream1": sets.Empty{},
+				"upstream1": {},
 			},
 			msg: "invalid service",
 		},
 		{
 			upstreams: []v1alpha1.Upstream{
 				{
-					Name:    "upstream1",
-					Service: "test-1",
-					Port:    0,
+					Name:                     "upstream1",
+					Service:                  "test-1",
+					Port:                     0,
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
 				},
 			},
 			expectedUpstreamNames: map[string]sets.Empty{
-				"upstream1": sets.Empty{},
+				"upstream1": {},
 			},
 			msg: "invalid port",
 		},
 		{
 			upstreams: []v1alpha1.Upstream{
 				{
-					Name:    "upstream1",
-					Service: "test-1",
-					Port:    80,
+					Name:                     "upstream1",
+					Service:                  "test-1",
+					Port:                     80,
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
 				},
 				{
-					Name:    "upstream1",
-					Service: "test-2",
-					Port:    80,
+					Name:                     "upstream1",
+					Service:                  "test-2",
+					Port:                     80,
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
 				},
 			},
 			expectedUpstreamNames: map[string]sets.Empty{
-				"upstream1": sets.Empty{},
+				"upstream1": {},
 			},
 			msg: "duplicated upstreams",
+		},
+		{
+			upstreams: []v1alpha1.Upstream{
+				{
+					Name:                     "upstream1",
+					Service:                  "test-1",
+					Port:                     80,
+					ProxyNextUpstream:        "https_504",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   5,
+				},
+			},
+			expectedUpstreamNames: map[string]sets.Empty{
+				"upstream1": {},
+			},
+			msg: "invalid next upstream syntax",
+		},
+		{
+			upstreams: []v1alpha1.Upstream{
+				{
+					Name:                     "upstream1",
+					Service:                  "test-1",
+					Port:                     80,
+					ProxyNextUpstream:        "http_504",
+					ProxyNextUpstreamTimeout: "-2s",
+					ProxyNextUpstreamTries:   5,
+				},
+			},
+			expectedUpstreamNames: map[string]sets.Empty{
+				"upstream1": {},
+			},
+			msg: "invalid upstream timeout value",
+		},
+		{
+			upstreams: []v1alpha1.Upstream{
+				{
+					Name:                     "upstream1",
+					Service:                  "test-1",
+					Port:                     80,
+					ProxyNextUpstream:        "https_504",
+					ProxyNextUpstreamTimeout: "10s",
+					ProxyNextUpstreamTries:   -1,
+				},
+			},
+			expectedUpstreamNames: map[string]sets.Empty{
+				"upstream1": {},
+			},
+			msg: "invalid upstream tries value",
+		},
+		{
+			upstreams: []v1alpha1.Upstream{
+				{
+					Name:     "upstream1",
+					Service:  "test-1",
+					Port:     80,
+					MaxConns: createPointerFromInt(-1),
+				},
+			},
+			expectedUpstreamNames: map[string]sets.Empty{
+				"upstream1": {},
+			},
+			msg: "negative value for MaxConns",
+		},
+		{
+			upstreams: []v1alpha1.Upstream{
+				{
+					Name:              "upstream1",
+					Service:           "test-1",
+					Port:              80,
+					ClientMaxBodySize: "7mins",
+				},
+			},
+			expectedUpstreamNames: map[string]sets.Empty{
+				"upstream1": {},
+			},
+			msg: "invalid value for ClientMaxBodySize",
 		},
 	}
 
@@ -233,6 +332,44 @@ func TestValidateUpstreamsFails(t *testing.T) {
 		}
 		if !resultUpstreamNames.Equal(test.expectedUpstreamNames) {
 			t.Errorf("validateUpstreams() returned %v expected %v for the case of %s", resultUpstreamNames, test.expectedUpstreamNames, test.msg)
+		}
+	}
+}
+
+func TestValidateNextUpstream(t *testing.T) {
+	tests := []struct {
+		inputS string
+	}{
+		{
+			inputS: "error timeout",
+		},
+		{
+			inputS: "http_404 timeout",
+		},
+	}
+	for _, test := range tests {
+		allErrs := validateNextUpstream(test.inputS, field.NewPath("next-upstreams"))
+		if len(allErrs) > 0 {
+			t.Errorf("validateNextUpstream(%q) returned errors %v for valid input.", test.inputS, allErrs)
+		}
+	}
+}
+
+func TestValidateNextUpstreamFails(t *testing.T) {
+	tests := []struct {
+		inputS string
+	}{
+		{
+			inputS: "error error",
+		},
+		{
+			inputS: "https_404",
+		},
+	}
+	for _, test := range tests {
+		allErrs := validateNextUpstream(test.inputS, field.NewPath("next-upstreams"))
+		if len(allErrs) < 0 {
+			t.Errorf("validateNextUpstream(%q) didn't return errors %v for invalid input.", test.inputS, allErrs)
 		}
 	}
 }
@@ -283,7 +420,7 @@ func TestValidateVirtualServerRoutes(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test": sets.Empty{},
+				"test": {},
 			},
 			msg: "valid route",
 		},
@@ -315,8 +452,8 @@ func TestValidateVirtualServerRoutesFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			msg: "duplicated paths",
 		},
@@ -355,7 +492,7 @@ func TestValidateRoute(t *testing.T) {
 				Upstream: "test",
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test": sets.Empty{},
+				"test": {},
 			},
 			isRouteFieldForbidden: false,
 			msg:                   "valid route with upstream",
@@ -375,8 +512,8 @@ func TestValidateRoute(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			isRouteFieldForbidden: false,
 			msg:                   "valid upstream with splits",
@@ -402,8 +539,8 @@ func TestValidateRoute(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			isRouteFieldForbidden: false,
 			msg:                   "valid upstream with rules",
@@ -441,7 +578,7 @@ func TestValidateRouteFails(t *testing.T) {
 				Upstream: "test",
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test": sets.Empty{},
+				"test": {},
 			},
 			isRouteFieldForbidden: false,
 			msg:                   "empty path",
@@ -480,9 +617,9 @@ func TestValidateRouteFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test":   sets.Empty{},
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test":   {},
+				"test-1": {},
+				"test-2": {},
 			},
 			isRouteFieldForbidden: false,
 			msg:                   "both upstream and splits exist",
@@ -509,9 +646,9 @@ func TestValidateRouteFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test":   sets.Empty{},
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test":   {},
+				"test-1": {},
+				"test-2": {},
 			},
 			isRouteFieldForbidden: false,
 			msg:                   "both upstream and rules exist",
@@ -547,8 +684,8 @@ func TestValidateRouteFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			isRouteFieldForbidden: false,
 			msg:                   "both splits and rules exist",
@@ -602,7 +739,7 @@ func TestValidateRouteField(t *testing.T) {
 func TestValdateReferencedUpstream(t *testing.T) {
 	upstream := "test"
 	upstreamNames := map[string]sets.Empty{
-		"test": sets.Empty{},
+		"test": {},
 	}
 
 	allErrs := validateReferencedUpstream(upstream, field.NewPath("upstream"), upstreamNames)
@@ -685,8 +822,8 @@ func TestValidateSplits(t *testing.T) {
 		},
 	}
 	upstreamNames := map[string]sets.Empty{
-		"test-1": sets.Empty{},
-		"test-2": sets.Empty{},
+		"test-1": {},
+		"test-2": {},
 	}
 
 	allErrs := validateSplits(splits, field.NewPath("splits"), upstreamNames)
@@ -709,7 +846,7 @@ func TestValidateSplitsFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
+				"test-1": {},
 			},
 			msg: "only one split",
 		},
@@ -725,8 +862,8 @@ func TestValidateSplitsFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			msg: "invalid weight",
 		},
@@ -742,8 +879,8 @@ func TestValidateSplitsFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			msg: "invalid total weight",
 		},
@@ -759,8 +896,8 @@ func TestValidateSplitsFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			msg: "invalid upstream",
 		},
@@ -776,8 +913,8 @@ func TestValidateSplitsFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			msg: "non-existing upstream",
 		},
@@ -810,8 +947,8 @@ func TestValidateRules(t *testing.T) {
 	}
 
 	upstreamNames := map[string]sets.Empty{
-		"test-1": sets.Empty{},
-		"test-2": sets.Empty{},
+		"test-1": {},
+		"test-2": {},
 	}
 
 	allErrs := validateRules(&rules, field.NewPath("rules"), upstreamNames)
@@ -840,8 +977,8 @@ func TestValidateRulesFails(t *testing.T) {
 				DefaultUpstream: "test-2",
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			msg: "no conditions",
 		},
@@ -856,7 +993,7 @@ func TestValidateRulesFails(t *testing.T) {
 				DefaultUpstream: "test-2",
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-2": sets.Empty{},
+				"test-2": {},
 			},
 			msg: "no matches",
 		},
@@ -878,7 +1015,7 @@ func TestValidateRulesFails(t *testing.T) {
 				DefaultUpstream: "",
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
+				"test-1": {},
 			},
 			msg: "no default upstream",
 		},
@@ -901,8 +1038,8 @@ func TestValidateRulesFails(t *testing.T) {
 				DefaultUpstream: "test",
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test":   sets.Empty{},
+				"test-1": {},
+				"test":   {},
 			},
 			msg: "invalid values in a match",
 		},
@@ -1096,7 +1233,7 @@ func TestValidateMatch(t *testing.T) {
 	}
 	conditionsCount := 2
 	upstreamNames := map[string]sets.Empty{
-		"test": sets.Empty{},
+		"test": {},
 	}
 
 	allErrs := validateMatch(match, field.NewPath("match"), conditionsCount, upstreamNames)
@@ -1119,7 +1256,7 @@ func TestValidateMatchFails(t *testing.T) {
 			},
 			conditionsCount: 1,
 			upstreamNames: map[string]sets.Empty{
-				"test": sets.Empty{},
+				"test": {},
 			},
 			msg: "invalid number of values",
 		},
@@ -1132,7 +1269,7 @@ func TestValidateMatchFails(t *testing.T) {
 			},
 			conditionsCount: 1,
 			upstreamNames: map[string]sets.Empty{
-				"test": sets.Empty{},
+				"test": {},
 			},
 			msg: "invalid value",
 		},
@@ -1309,7 +1446,7 @@ func TestValidateVirtualServerRouteSubroutes(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test": sets.Empty{},
+				"test": {},
 			},
 			pathPrefix: "/",
 			msg:        "valid route",
@@ -1343,8 +1480,8 @@ func TestValidateVirtualServerRouteSubroutesFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
-				"test-2": sets.Empty{},
+				"test-1": {},
+				"test-2": {},
 			},
 			pathPrefix: "/",
 			msg:        "duplicated paths",
@@ -1368,7 +1505,7 @@ func TestValidateVirtualServerRouteSubroutesFails(t *testing.T) {
 				},
 			},
 			upstreamNames: map[string]sets.Empty{
-				"test-1": sets.Empty{},
+				"test-1": {},
 			},
 			pathPrefix: "/abc",
 			msg:        "invalid prefix",
@@ -1443,7 +1580,7 @@ func createPointerFromInt(n int) *int {
 	return &n
 }
 
-func TestValidatePositiveIntOrZero(t *testing.T) {
+func TestValidatePositiveIntOrZeroFromPointer(t *testing.T) {
 	tests := []struct {
 		number *int
 		msg    string
@@ -1463,20 +1600,52 @@ func TestValidatePositiveIntOrZero(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		allErrs := validatePositiveIntOrZeroFromPointer(test.number, field.NewPath("int-field"))
+
+		if len(allErrs) != 0 {
+			t.Errorf("validatePositiveIntOrZeroFromPointer returned errors for case: %v", test.msg)
+		}
+	}
+}
+
+func TestValidatePositiveIntOrZeroFromPointerFails(t *testing.T) {
+	number := createPointerFromInt(-1)
+	allErrs := validatePositiveIntOrZeroFromPointer(number, field.NewPath("int-field"))
+
+	if len(allErrs) == 0 {
+		t.Error("validatePositiveIntOrZeroFromPointer returned no errors for case: invalid (-1)")
+	}
+}
+
+func TestValidatePositiveIntOrZero(t *testing.T) {
+	tests := []struct {
+		number int
+		msg    string
+	}{
+		{
+			number: 0,
+			msg:    "valid (0)",
+		},
+		{
+			number: 1,
+			msg:    "valid (1)",
+		},
+	}
+
+	for _, test := range tests {
 		allErrs := validatePositiveIntOrZero(test.number, field.NewPath("int-field"))
 
 		if len(allErrs) != 0 {
-			t.Errorf("validatePositiveInt returned errors for case: %v", test.msg)
+			t.Errorf("validatePositiveIntOrZero returned errors for case: %v", test.msg)
 		}
 	}
 }
 
 func TestValidatePositiveIntOrZeroFails(t *testing.T) {
-	number := createPointerFromInt(-1)
-	allErrs := validatePositiveIntOrZero(number, field.NewPath("int-field"))
+	allErrs := validatePositiveIntOrZero(-1, field.NewPath("int-field"))
 
 	if len(allErrs) == 0 {
-		t.Error("validatePositiveInt returned no errors for case: invalid (-1)")
+		t.Error("validatePositiveIntOrZero returned no errors for case: invalid (-1)")
 	}
 }
 
@@ -1489,11 +1658,251 @@ func TestValidateTime(t *testing.T) {
 	}
 }
 
+func TestValidateSize(t *testing.T) {
+	var validInput = []string{"", "1", "10k", "11m", "1K", "100M"}
+	for _, test := range validInput {
+		allErrs := validateSize(test, field.NewPath("size-field"))
+		if len(allErrs) != 0 {
+			t.Errorf("validateSize(%q) returned an error for valid input", test)
+		}
+	}
+
+	var invalidInput = []string{"55mm", "2mG", "6kb", "-5k", "1L"}
+	for _, test := range invalidInput {
+		allErrs := validateSize(test, field.NewPath("size-field"))
+		if len(allErrs) == 0 {
+			t.Errorf("validateSize(%q) didn't return error for invalid input.", test)
+		}
+	}
+}
+
 func TestValidateTimeFails(t *testing.T) {
 	time := "invalid"
 	allErrs := validateTime(time, field.NewPath("time-field"))
 
 	if len(allErrs) == 0 {
 		t.Errorf("validateTime returned no errors for invalid input %v", time)
+	}
+}
+
+func TestValidateUpstreamHealthCheck(t *testing.T) {
+	hc := &v1alpha1.HealthCheck{
+		Enable:   true,
+		Path:     "/healthz",
+		Interval: "4s",
+		Jitter:   "2s",
+		Fails:    3,
+		Passes:   2,
+		Port:     8080,
+		TLS: &v1alpha1.UpstreamTLS{
+			Enable: true,
+		},
+		ConnectTimeout: "1s",
+		ReadTimeout:    "1s",
+		SendTimeout:    "1s",
+		Headers: []v1alpha1.Header{
+			{
+				Name:  "Host",
+				Value: "my.service",
+			},
+		},
+		StatusMatch: "! 500",
+	}
+
+	allErrs := validateUpstreamHealthCheck(hc, field.NewPath("healthCheck"))
+
+	if len(allErrs) != 0 {
+		t.Errorf("validateUpstreamHealthCheck() returned errors for valid input %v", hc)
+	}
+}
+
+func TestValidateUpstreamHealthCheckFails(t *testing.T) {
+	hc := &v1alpha1.HealthCheck{
+		Enable: true,
+		Path:   "/healthz//;",
+	}
+
+	allErrs := validateUpstreamHealthCheck(hc, field.NewPath("healthCheck"))
+
+	if len(allErrs) == 0 {
+		t.Errorf("validateUpstreamHealthCheck() returned no errors for invalid input %v", hc)
+	}
+}
+
+func TestValidateStatusMatch(t *testing.T) {
+	tests := []struct {
+		status string
+	}{
+		{
+			status: "200",
+		},
+		{
+			status: "! 500",
+		},
+		{
+			status: "200 204",
+		},
+		{
+			status: "! 301 302",
+		},
+		{
+			status: "200-399",
+		},
+		{
+			status: "! 400-599",
+		},
+		{
+			status: "301-303 307",
+		},
+	}
+	for _, test := range tests {
+		allErrs := validateStatusMatch(test.status, field.NewPath("statusMatch"))
+
+		if len(allErrs) != 0 {
+			t.Errorf("validateStatusMatch() returned errors %v for valid input %v", allErrs, test.status)
+		}
+	}
+}
+
+func TestValidateStatusMatchFails(t *testing.T) {
+	tests := []struct {
+		status string
+		msg    string
+	}{
+		{
+			status: "qwe",
+			msg:    "Invalid: no digits",
+		},
+		{
+			status: "!",
+			msg:    "Invalid: `!` character only",
+		},
+		{
+			status: "!500",
+			msg:    "Invalid: no space after !",
+		},
+		{
+			status: "0",
+			msg:    "Invalid: status out of range (below 100)",
+		},
+		{
+			status: "1000",
+			msg:    "Invalid: status out of range (above 999)",
+		},
+		{
+			status: "20-600",
+			msg:    "Invalid: code in range is out of range",
+		},
+		{
+			status: "! 200 ! 500",
+			msg:    "Invalid: 2 exclamation symbols",
+		},
+		{
+			status: "200 - 500",
+			msg:    "Invalid: range with space around `-`",
+		},
+		{
+			status: "500-200",
+			msg:    "Invalid: range must be min < max",
+		},
+		{
+			status: "200-200-400",
+			msg:    "Invalid: range with more than 2 numbers",
+		},
+	}
+	for _, test := range tests {
+		allErrs := validateStatusMatch(test.status, field.NewPath("statusMatch"))
+
+		if len(allErrs) == 0 {
+			t.Errorf("validateStatusMatch() returned no errors for case %v", test.msg)
+		}
+	}
+}
+
+func TestValidateHeader(t *testing.T) {
+	tests := []struct {
+		header v1alpha1.Header
+	}{
+		{
+			header: v1alpha1.Header{
+				Name:  "Host",
+				Value: "my.service",
+			},
+		},
+		{
+			header: v1alpha1.Header{
+				Name:  "Host",
+				Value: `\"my.service\"`,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		allErrs := validateHeader(test.header, field.NewPath("headers"))
+
+		if len(allErrs) != 0 {
+			t.Errorf("validateHeader() returned errors %v for valid input %v", allErrs, test.header)
+		}
+	}
+}
+
+func TestValidateHeaderFails(t *testing.T) {
+	tests := []struct {
+		header v1alpha1.Header
+		msg    string
+	}{
+		{
+			header: v1alpha1.Header{
+				Name:  "12378 qwe ",
+				Value: "my.service",
+			},
+			msg: "Invalid name with spaces",
+		},
+		{
+			header: v1alpha1.Header{
+				Name:  "Host",
+				Value: `"my.service`,
+			},
+			msg: `Invalid value with unescaped '"'`,
+		},
+		{
+			header: v1alpha1.Header{
+				Name:  "Host",
+				Value: `my.service\`,
+			},
+			msg: "Invalid value with ending '\\'",
+		},
+		{
+			header: v1alpha1.Header{
+				Name:  "Host",
+				Value: "$my.service",
+			},
+			msg: "Invalid value with '$' character",
+		},
+	}
+	for _, test := range tests {
+		allErrs := validateHeader(test.header, field.NewPath("headers"))
+
+		if len(allErrs) == 0 {
+			t.Errorf("validateHeader() returned no errors for case: %v", test.msg)
+		}
+	}
+}
+
+func TestValidateIntFromString(t *testing.T) {
+	input := "404"
+	_, errMsg := validateIntFromString(input)
+
+	if errMsg != "" {
+		t.Errorf("validateIntFromString() returned errors %v for valid input %v", errMsg, input)
+	}
+}
+
+func TestValidateIntFromStringFails(t *testing.T) {
+	input := "not a number"
+	_, errMsg := validateIntFromString(input)
+
+	if errMsg == "" {
+		t.Errorf("validateIntFromString() returned no errors for invalid input %v", input)
 	}
 }

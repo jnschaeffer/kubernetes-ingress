@@ -159,8 +159,7 @@ func (cnf *Configurator) addOrUpdateVirtualServer(virtualServerEx *VirtualServer
 	if virtualServerEx.TLSSecret != nil {
 		tlsPemFileName = cnf.addOrUpdateTLSSecret(virtualServerEx.TLSSecret)
 	}
-
-	vsCfg := generateVirtualServerConfig(virtualServerEx, tlsPemFileName, cnf.cfgParams, cnf.isPlus)
+	vsCfg := generateVirtualServerConfig(virtualServerEx, tlsPemFileName, cnf.cfgParams, cnf.isPlus, cnf.IsResolverConfigured())
 
 	name := getFileNameForVirtualServer(virtualServerEx.VirtualServer)
 	content, err := cnf.templateExecutorV2.ExecuteVirtualServerTemplate(&vsCfg)
@@ -210,7 +209,7 @@ func (cnf *Configurator) updateJWKSecret(ingEx *IngressEx) string {
 
 func (cnf *Configurator) addOrUpdateJWKSecret(secret *api_v1.Secret) string {
 	name := objectMetaToFileName(&secret.ObjectMeta)
-	data := []byte(secret.Data[JWTKeyKey])
+	data := secret.Data[JWTKeyKey]
 	return cnf.nginxManager.CreateSecret(name, data, nginx.JWKSecretFileMode)
 }
 
@@ -440,13 +439,15 @@ func (cnf *Configurator) UpdateEndpointsForVirtualServers(virtualServerExes []*V
 }
 
 func (cnf *Configurator) updatePlusEndpointsForVirtualServer(virtualServerEx *VirtualServerEx) error {
-	serverCfg := createUpstreamServersConfig(cnf.cfgParams)
-	upstreamServers := createUpstreamServersForPlus(virtualServerEx)
+	upstreams := createUpstreamsForPlus(virtualServerEx, cnf.cfgParams)
+	for _, upstream := range upstreams {
+		serverCfg := createUpstreamServersConfigForPlus(upstream)
 
-	for upstream, servers := range upstreamServers {
-		err := cnf.nginxManager.UpdateServersInPlus(upstream, servers, serverCfg)
+		endpoints := createEndpointsFromUpstream(upstream)
+
+		err := cnf.nginxManager.UpdateServersInPlus(upstream.Name, endpoints, serverCfg)
 		if err != nil {
-			return fmt.Errorf("Couldn't update the endpoints for %v: %v", upstream, err)
+			return fmt.Errorf("Couldn't update the endpoints for %v: %v", upstream.Name, err)
 		}
 	}
 
@@ -458,6 +459,7 @@ func (cnf *Configurator) updatePlusEndpoints(ingEx *IngressEx) error {
 
 	cfg := nginx.ServerConfig{
 		MaxFails:    ingCfg.MaxFails,
+		MaxConns:    ingCfg.MaxConns,
 		FailTimeout: ingCfg.FailTimeout,
 		SlowStart:   ingCfg.SlowStart,
 	}

@@ -7,24 +7,27 @@ This document is the reference documentation for the resources. To see additiona
 **Feature Status**: The VirtualServer and VirtualServerRoute resources are available as a preview feature: it is suitable for experimenting and testing; however, it must be used with caution in production environments. Additionally, while the feature is in preview, we might introduce some backward-incompatible changes to the resources specification in the next releases.
 
 ## Contents
-- [VirtualServer and VirtualServerRoute Resources](#VirtualServer-and-VirtualServerRoute-Resources)
-  - [Contents](#Contents)
-  - [Prerequisites](#Prerequisites)
-  - [VirtualServer Specification](#VirtualServer-Specification)
-    - [VirtualServer.TLS](#VirtualServerTLS)
-    - [VirtualServer.Route](#VirtualServerRoute)
-  - [VirtualServerRoute Specification](#VirtualServerRoute-Specification)
-    - [VirtualServerRoute.Subroute](#VirtualServerRouteSubroute)
-  - [Common Parts of the VirtualServer and VirtualServerRoute](#Common-Parts-of-the-VirtualServer-and-VirtualServerRoute)
-    - [Upstream](#Upstream)
-    - [Upstream.TLS](#UpstreamTLS)
-    - [Split](#Split)
-    - [Rules](#Rules)
-    - [Condition](#Condition)
-    - [Match](#Match)
-  - [Using VirtualServer and VirtualServerRoute](#Using-VirtualServer-and-VirtualServerRoute)
-    - [Validation](#Validation)
-  - [Customization via ConfigMap](#Customization-via-ConfigMap)
+
+- [VirtualServer and VirtualServerRoute Resources](#virtualserver-and-virtualserverroute-resources)
+  - [Contents](#contents)
+  - [Prerequisites](#prerequisites)
+  - [VirtualServer Specification](#virtualserver-specification)
+    - [VirtualServer.TLS](#virtualservertls)
+    - [VirtualServer.Route](#virtualserverroute)
+  - [VirtualServerRoute Specification](#virtualserverroute-specification)
+    - [VirtualServerRoute.Subroute](#virtualserverroutesubroute)
+  - [Common Parts of the VirtualServer and VirtualServerRoute](#common-parts-of-the-virtualserver-and-virtualserverroute)
+    - [Upstream](#upstream)
+    - [Upstream.TLS](#upstreamtls)
+    - [Upstream.Healthcheck](#upstreamhealthcheck)
+    - [Header](#header)
+    - [Split](#split)
+    - [Rules](#rules)
+    - [Condition](#condition)
+    - [Match](#match)
+  - [Using VirtualServer and VirtualServerRoute](#using-virtualserver-and-virtualserverroute)
+    - [Validation](#validation)
+  - [Customization via ConfigMap](#customization-via-configmap)
 
 ## Prerequisites
 
@@ -180,32 +183,103 @@ port: 80
 lb-method: round_robin
 fail-timeout: 10s
 max-fails: 1
+max-conns: 32
 keepalive: 32
 connect-timeout: 30s
 read-timeout: 30s
 send-timeout: 30s
+next-upstream: "error timeout non_idempotent"
+next-upstream-timeout: 5s
+next-upstream-tries: 10
+client-max-body-size: 2m
 tls:
   enable: True
 ```
 
+**Note**: The WebSocket protocol is supported without any additional configuration.
+
 | Field | Description | Type | Required |
 | ----- | ----------- | ---- | -------- |
 | `name` | The name of the upstream. Must be a valid DNS label as defined in RFC 1035. For example, `hello` and `upstream-123` are valid. The name must be unique among all upstreams of the resource. | `string` | Yes |
-| `service` | The name of a [service](https://kubernetes.io/docs/concepts/services-networking/service/). The service must belong to the same namespace as the resource. If the service doesn't exist, NGINX will assume the service has zero endpoints and return a `502` response for requests for this upstream. | `string` | Yes |
+| `service` | The name of a [service](https://kubernetes.io/docs/concepts/services-networking/service/). The service must belong to the same namespace as the resource. If the service doesn't exist, NGINX will assume the service has zero endpoints and return a `502` response for requests for this upstream. For NGINX Plus only, services of type [ExternalName](https://kubernetes.io/docs/concepts/services-networking/service/#externalname) are also supported (check the [prerequisites](../examples/externalname-services#prerequisites)). | `string` | Yes |
 | `port` | The port of the service. If the service doesn't define that port, NGINX will assume the service has zero endpoints and return a `502` response for requests for this upstream. The port must fall into the range `1..65553`. | `uint16` | Yes |
 | `lb-method` | The load [balancing method](https://docs.nginx.com/nginx/admin-guide/load-balancer/http-load-balancer/#choosing-a-load-balancing-method). To use the round-robin method, specify `round_robin`. The default is specified in the `lb-method` ConfigMap key. | `string` | No |
 | `fail-timeout` | The time during which the specified number of unsuccessful attempts to communicate with an upstream server should happen to consider the server unavailable. See the [fail_timeout](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#fail_timeout) parameter of the server directive. The default is set in the `fail-timeout` ConfigMap key. | `string` | No |
 | `max-fails` | The number of unsuccessful attempts to communicate with an upstream server that should happen in the duration set by the `fail-timeout` to consider the server unavailable. See the [max_fails](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#max_fails) parameter of the server directive. The default is set in the `max-fails` ConfgMap key. | `int` | No |
-| `keepalive` | Configures the cache for connections to upstream servers. The value `0` disables the cache. See the [keepalive](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive) directive. The default is set in the `keepalive` ConfigMap key. | `int` | No
-`connect-timeout` | The timeout for establishing a connection with an upstream server. See the [proxy_connect_timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_connect_timeout) directive. The default is specified in the `proxy-connect-timeout` ConfigMap key. | `string` | No
-`read-timeout` | The timeout for reading a response from an upstream server. See the [proxy_read_timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout) directive.  The default is specified in the `proxy-read-timeout` ConfigMap key. | `string` | No
-`send-timeout` | The timeout for transmitting a request to an upstream server. See the [proxy_send_timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_send_timeout) directive. The default is specified in the `proxy-send-timeout` ConfigMap key. | `string` | No
+| `max-conns` | The maximum number of simultaneous active connections to an upstream server. See the [max_conns](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#max_conns) parameter of the server directive. By default there is no limit. Note: if keepalive connections are enabled, the total number of active and idle keepalive connections to an upstream server may exceed the `max_conns` value. | `int` | No |
+| `keepalive` | Configures the cache for connections to upstream servers. The value `0` disables the cache. See the [keepalive](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive) directive. The default is set in the `keepalive` ConfigMap key. | `int` | No |
+| `connect-timeout` | The timeout for establishing a connection with an upstream server. See the [proxy_connect_timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_connect_timeout) directive. The default is specified in the `proxy-connect-timeout` ConfigMap key. | `string` | No |
+| `read-timeout` | The timeout for reading a response from an upstream server. See the [proxy_read_timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout) directive.  The default is specified in the `proxy-read-timeout` ConfigMap key. | `string` | No |
+| `send-timeout` | The timeout for transmitting a request to an upstream server. See the [proxy_send_timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_send_timeout) directive. The default is specified in the `proxy-send-timeout` ConfigMap key. | `string` | No |
+| `next-upstream` | Specifies in which cases a request should be passed to the next upstream server. See the [proxy_next_upstream](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream) directive. The default is `error timeout`. | `string` | No |
+| `next-upstream-timeout` | The time during which a request can be passed to the next upstream server. See the [proxy_next_upstream_timeout](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream_timeout) directive. The `0` value turns off the time limit. The default is `0`. | `string` | No |
+| `next-upstream-tries` | The number of possible tries for passing a request to the next upstream server. See the [proxy_next_upstream_tries](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream_tries) directive. The `0` value turns off this limit. The default is `0`. | `int` | No |
+| `client-max-body-size` | Sets the maximum allowed size of the client request body. See the [client_max_body_size](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size) directive. The default is set in the `client-max-body-size` ConfigMap key. | `string` | No |
 | `tls` | The TLS configuration for the Upstream. | [`tls`](#UpstreamTLS) | No |
+| `healthCheck` | The health check configuration for the Upstream. See the [health_check](http://nginx.org/en/docs/http/ngx_http_upstream_hc_module.html#health_check) directive. Note: this feature is supported only in NGINX Plus. | [`healthcheck`](#UpstreamHealthcheck) | No |
+| `slow-start` | The slow start allows an upstream server to gradually recover its weight from 0 to its nominal value after it has been recovered or became available or when the server becomes available after a period of time it was considered unavailable. By default, the slow start is disabled. See the [slow_start](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#slow_start) parameter of the server directive. Note: The parameter cannot be used along with the `random`, `hash` or `ip_hash` load balancing methods and will be ignored. | `string` | No |
 
 ### Upstream.TLS
+
 | Field | Description | Type | Required |
 | ----- | ----------- | ---- | -------- |
 | `enable` | Enables HTTPS for requests to upstream servers. The default is `False`, meaning that HTTP will be used. | `boolean` | No |
+
+### Upstream.Healthcheck
+
+The Healthcheck defines an [active health check](https://docs.nginx.com/nginx/admin-guide/load-balancer/http-health-check/). In the example below we enable a health check for an upstream and configure all the available parameters:
+
+```yaml
+name: tea
+service: tea-svc
+port: 80
+healthCheck:
+  enable: true
+  path: /healthz
+  interval: 20s
+  jitter: 3s
+  fails: 5
+  passes: 5
+  port: 8080
+  tls:
+    enable: true
+  connect-timeout: 10s
+  read-timeout: 10s
+  send-timeout: 10s
+  headers:
+  - name: Host
+    value: my.service
+  statusMatch: "! 500"
+```
+
+| Field | Description | Type | Required |
+| ----- | ----------- | ---- | -------- |
+| `enable` | Enables a health check for an upstream server. The default is `false`. | `boolean` | No |
+| `path`  | The path used for health check requests. The default is `/`. | `string` | No |
+| `interval` | The interval between two consecutive health checks. The default is `5s`. | `string` | No |
+| `jitter` | The time within which each health check will be randomly delayed. By default, there is no delay. | `string` | No |
+| `fails` | The number of consecutive failed health checks of a particular upstream server after which this server will be considered unhealthy. The default is `1`. | `integer` | No |
+| `passes` | The number of consecutive passed health checks of a particular upstream server after which the server will be considered healthy. The default is `1`. | `integer` | No |
+| `port` | The port used for health check requests. By default, the port of the upstream is used. Note: in contrast with the port of the upstream, this port is not a service port, but a port of a pod. | `integer` | No |
+| `tls` | The TLS configuration used for health check requests. By default, the `tls` field of the upstream is used. | [`upstream.tls`](#UpstreamTLS) | No |
+| `connect-timeout` | The timeout for establishing a connection with an upstream server. By default, the `connect-timeout` of the upstream is used. | `string` | No |
+| `read-timeout` | The timeout for reading a response from an upstream server. By default, the `read-timeout` of the upstream is used. | `string` | No |
+| `send-timeout` | The timeout for transmitting a request to an upstream server. By default, the `send-timeout` of the upstream is used. | `string` | No |
+| `headers` | The request headers used for health check requests. NGINX Plus always sets the `Host`, `User-Agent` and `Connection` headers for health check requests. | [`[]header`](#Header) | No |
+| `statusMatch` | The expected response status codes of a health check.  By default, the response should have status code 2xx or 3xx. Examples: `“200”`, `“! 500”`, `"301-303 307"`. See the documentation of the [match](https://nginx.org/en/docs/http/ngx_http_upstream_hc_module.html?#match) directive. | `string` | No |
+
+### Header
+
+The header defines an HTTP Header:
+```yaml
+name: Host
+value: example.com
+```
+
+| Field | Description | Type | Required |
+| ----- | ----------- | ---- | -------- |
+| `name` | The name of the header. | `string` | Yes |
+| `value` | The value of the header. | `string` | No |
 
 ### Split
 

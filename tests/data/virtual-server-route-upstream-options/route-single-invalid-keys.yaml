@@ -11,6 +11,15 @@ spec:
     lb-method: "random two least_connn"
     max-fails: -10
     fail-timeout: "20 seconds"
+    connect-timeout: "1.5m"
+    read-timeout: "-16s"
+    send-timeout: "-0s"
+    keepalive: -10
+    max-conns: -23
+    next-upstream: "invalid upstream"
+    next-upstream-timeout: "time"
+    next-upstream-tries: -12
+    client-max-body-size: "1.3m"
   subroutes:
   - path: "/backend2"
     upstream: backend2

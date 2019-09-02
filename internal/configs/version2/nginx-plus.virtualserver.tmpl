@@ -1,11 +1,11 @@
 {{ range $u := .Upstreams }}
 upstream {{ $u.Name }} {
-    zone {{ $u.Name }} 256k;
+    zone {{ $u.Name }} {{ if ne $u.UpstreamZoneSize "0" }}{{ $u.UpstreamZoneSize }}{{ else }}256k{{ end }};
 
     {{ if $u.LBMethod }}{{ $u.LBMethod }};{{ end }}
 
     {{ range $s := $u.Servers }}
-    server {{ $s.Address }} max_fails={{ $s.MaxFails }} fail_timeout={{ $s.FailTimeout }};
+    server {{ $s.Address }} max_fails={{ $u.MaxFails }} fail_timeout={{ $u.FailTimeout }}{{ if $u.SlowStart }} slow_start={{ $u.SlowStart }}{{ end }} max_conns={{ $u.MaxConns }}{{ if $u.Resolve }} resolve{{ end }};
     {{ end }}
 
     {{ if $u.Keepalive }}
@@ -27,6 +27,12 @@ map {{ $m.Source }} {{ $m.Variable }} {
     {{ range $p := $m.Parameters }}
     {{ $p.Value }} {{ $p.Result }};
     {{ end }}
+}
+{{ end }}
+
+{{ range $m := .StatusMatches }}
+match {{ $m.Name }} {
+    status {{ $m.Code }};
 }
 {{ end }}
 
@@ -82,6 +88,20 @@ server {
     }
     {{ end }}
 
+    {{ range $hc := $s.HealthChecks }}
+    location @hc-{{ $hc.Name }} {
+        {{ range $n, $v := $hc.Headers }}
+        proxy_set_header {{ $n }} "{{ $v }}";
+        {{ end }}
+        proxy_connect_timeout {{ $hc.ProxyConnectTimeout }};
+        proxy_read_timeout {{ $hc.ProxyReadTimeout }};
+        proxy_send_timeout {{ $hc.ProxySendTimeout }};
+        proxy_pass {{ $hc.ProxyPass }};
+        health_check uri={{ $hc.URI }} port={{ $hc.Port }} interval={{ $hc.Interval }} jitter={{ $hc.Jitter }}
+            fails={{ $hc.Fails }} passes={{ $hc.Passes }}{{ if $hc.Match }} match={{ $hc.Match }}{{ end }};
+    }
+    {{ end }}
+
     {{ range $l := $s.Locations }}
     location {{ $l.Path }} {
         {{ range $snippet := $l.Snippets }}
@@ -107,10 +127,9 @@ server {
 
         proxy_http_version 1.1;
 
-        {{ if $l.HasKeepalive }}
-        proxy_set_header Connection "";
-        {{ end }}
-
+        set $default_connection_header {{ if $l.HasKeepalive }}""{{ else }}close{{ end }};
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $vs_connection_header;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -119,6 +138,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
 
         proxy_pass {{ $l.ProxyPass }};
+        proxy_next_upstream {{ $l.ProxyNextUpstream }};
+        proxy_next_upstream_timeout {{ $l.ProxyNextUpstreamTimeout }};
+        proxy_next_upstream_tries {{ $l.ProxyNextUpstreamTries }};
     }
     {{ end }}
 }

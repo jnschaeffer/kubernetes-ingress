@@ -3,6 +3,7 @@ package validation
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/nginxinc/kubernetes-ingress/internal/configs"
@@ -57,7 +58,17 @@ func validateTLS(tls *v1alpha1.TLS, fieldPath *field.Path) field.ErrorList {
 	return validateSecretName(tls.Secret, fieldPath.Child("secret"))
 }
 
-func validatePositiveIntOrZero(n *int, fieldPath *field.Path) field.ErrorList {
+func validatePositiveIntOrZero(n int, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if n < 0 {
+		return append(allErrs, field.Invalid(fieldPath, n, "must be positive"))
+	}
+
+	return allErrs
+}
+
+func validatePositiveIntOrZeroFromPointer(n *int, fieldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 	if n == nil {
 		return allErrs
@@ -84,6 +95,27 @@ func validateTime(time string, fieldPath *field.Path) field.ErrorList {
 	return allErrs
 }
 
+// http://nginx.org/en/docs/syntax.html
+const sizeFmt = `\d+[kKmMgG]?`
+const sizeErrMsg = "must consist of numeric characters followed by a valid size suffix. 'k|K|m|M|g|G"
+
+var sizeRegexp = regexp.MustCompile("^" + sizeFmt + "$")
+
+func validateSize(size string, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if size == "" {
+		return allErrs
+	}
+
+	if !sizeRegexp.MatchString(size) {
+		msg := validation.RegexError(sizeErrMsg, sizeFmt, "16", "32k", "64M")
+		return append(allErrs, field.Invalid(fieldPath, size, msg))
+	}
+
+	return allErrs
+}
+
 func validateUpstreamLBMethod(lBMethod string, fieldPath *field.Path, isPlus bool) field.ErrorList {
 	allErrs := field.ErrorList{}
 	if lBMethod == "" {
@@ -103,6 +135,153 @@ func validateUpstreamLBMethod(lBMethod string, fieldPath *field.Path, isPlus boo
 	}
 
 	return allErrs
+}
+
+func validateUpstreamHealthCheck(hc *v1alpha1.HealthCheck, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if hc == nil || !hc.Enable {
+		return allErrs
+	}
+
+	if hc.Path != "" {
+		allErrs = append(allErrs, validatePath(hc.Path, fieldPath.Child("path"))...)
+	}
+
+	allErrs = append(allErrs, validateTime(hc.Interval, fieldPath.Child("interval"))...)
+	allErrs = append(allErrs, validateTime(hc.Jitter, fieldPath.Child("jitter"))...)
+	allErrs = append(allErrs, validatePositiveIntOrZero(hc.Fails, fieldPath.Child("fails"))...)
+	allErrs = append(allErrs, validatePositiveIntOrZero(hc.Passes, fieldPath.Child("passes"))...)
+	allErrs = append(allErrs, validateTime(hc.ConnectTimeout, fieldPath.Child("connect-timeout"))...)
+	allErrs = append(allErrs, validateTime(hc.ReadTimeout, fieldPath.Child("read-timeout"))...)
+	allErrs = append(allErrs, validateTime(hc.SendTimeout, fieldPath.Child("send-timeout"))...)
+	allErrs = append(allErrs, validateStatusMatch(hc.StatusMatch, fieldPath.Child("statusMatch"))...)
+
+	for i, header := range hc.Headers {
+		idxPath := fieldPath.Child("headers").Index(i)
+		allErrs = append(allErrs, validateHeader(header, idxPath)...)
+	}
+
+	if hc.Port > 0 {
+		for _, msg := range validation.IsValidPortNum(hc.Port) {
+			allErrs = append(allErrs, field.Invalid(fieldPath.Child("port"), hc.Port, msg))
+		}
+	}
+
+	return allErrs
+}
+
+func validateStatusMatch(s string, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if s == "" {
+		return allErrs
+	}
+
+	if strings.HasPrefix(s, "!") {
+		if !strings.HasPrefix(s, "! ") {
+			allErrs = append(allErrs, field.Invalid(fieldPath, s, "must have an space character after the `!`"))
+		}
+	}
+
+	statuses := strings.Split(s, " ")
+	for i, value := range statuses {
+
+		if value == "!" {
+			if i != 0 {
+				allErrs = append(allErrs, field.Invalid(fieldPath, s, "`!` can only appear once at the beginning"))
+			}
+		} else if strings.Contains(value, "-") {
+			if msg := validateStatusCodeRange(value); msg != "" {
+				allErrs = append(allErrs, field.Invalid(fieldPath, s, msg))
+			}
+		} else if msg := validateStatusCode(value); msg != "" {
+			allErrs = append(allErrs, field.Invalid(fieldPath, s, msg))
+		}
+	}
+
+	return allErrs
+}
+
+func validateStatusCodeRange(statusRangeStr string) string {
+	statusRange := strings.Split(statusRangeStr, "-")
+	if len(statusRange) != 2 {
+		return "ranges must only have 2 numbers"
+	}
+
+	min, msg := validateIntFromString(statusRange[0])
+	if msg != "" {
+		return msg
+	}
+
+	max, msg := validateIntFromString(statusRange[1])
+	if msg != "" {
+		return msg
+	}
+
+	for _, code := range statusRange {
+		if msg := validateStatusCode(code); msg != "" {
+			return msg
+		}
+	}
+
+	if max <= min {
+		return fmt.Sprintf("range limits must be %v < %v", min, max)
+	}
+
+	return ""
+}
+
+func validateIntFromString(number string) (int, string) {
+	numberInt, err := strconv.ParseInt(number, 10, 64)
+	if err != nil {
+		return 0, fmt.Sprintf("%v must be a valid integer", number)
+	}
+
+	return int(numberInt), ""
+}
+
+func validateStatusCode(status string) string {
+	code, errMsg := validateIntFromString(status)
+	if errMsg != "" {
+		return errMsg
+	}
+
+	if code < 100 || code > 999 {
+		return validation.InclusiveRangeError(100, 999)
+	}
+
+	return ""
+}
+
+func validateHeader(h v1alpha1.Header, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if h.Name == "" {
+		allErrs = append(allErrs, field.Required(fieldPath.Child("name"), ""))
+	}
+
+	for _, msg := range validation.IsHTTPHeaderName(h.Name) {
+		allErrs = append(allErrs, field.Invalid(fieldPath.Child("name"), h.Name, msg))
+	}
+
+	for _, msg := range isValidHeaderValue(h.Value) {
+		allErrs = append(allErrs, field.Invalid(fieldPath.Child("value"), h.Value, msg))
+	}
+
+	return allErrs
+}
+
+const headerValueFmt = `([^"$\\]|\\.)*`
+const headerValueFmtErrMsg string = `a valid header must have all '"' escaped and must not end with an unescaped '\'`
+
+var headerValueFmtRegexp = regexp.MustCompile("^" + headerValueFmt + "$")
+
+func isValidHeaderValue(s string) []string {
+	if !headerValueFmtRegexp.MatchString(s) {
+		return []string{validation.RegexError(headerValueFmtErrMsg, headerValueFmt, "my.service", "foo")}
+	}
+	return nil
 }
 
 // validateSecretName checks if a secret name is valid.
@@ -142,11 +321,17 @@ func validateUpstreams(upstreams []v1alpha1.Upstream, fieldPath *field.Path, isP
 		allErrs = append(allErrs, validateTime(u.ProxyConnectTimeout, idxPath.Child("connect-timeout"))...)
 		allErrs = append(allErrs, validateTime(u.ProxyReadTimeout, idxPath.Child("read-timeout"))...)
 		allErrs = append(allErrs, validateTime(u.ProxySendTimeout, idxPath.Child("send-timeout"))...)
-
+		allErrs = append(allErrs, validateNextUpstream(u.ProxyNextUpstream, idxPath.Child("next-upstream"))...)
+		allErrs = append(allErrs, validateTime(u.ProxyNextUpstreamTimeout, idxPath.Child("next-upstream-timeout"))...)
+		allErrs = append(allErrs, validatePositiveIntOrZeroFromPointer(&u.ProxyNextUpstreamTries, idxPath.Child("next-upstream-tries"))...)
 		allErrs = append(allErrs, validateUpstreamLBMethod(u.LBMethod, idxPath.Child("lb-method"), isPlus)...)
 		allErrs = append(allErrs, validateTime(u.FailTimeout, idxPath.Child("fail-timeout"))...)
-		allErrs = append(allErrs, validatePositiveIntOrZero(u.MaxFails, idxPath.Child("max-fails"))...)
-		allErrs = append(allErrs, validatePositiveIntOrZero(u.Keepalive, idxPath.Child("keepalive"))...)
+		allErrs = append(allErrs, validatePositiveIntOrZeroFromPointer(u.MaxFails, idxPath.Child("max-fails"))...)
+		allErrs = append(allErrs, validatePositiveIntOrZeroFromPointer(u.Keepalive, idxPath.Child("keepalive"))...)
+		allErrs = append(allErrs, validatePositiveIntOrZeroFromPointer(u.MaxConns, idxPath.Child("max-conns"))...)
+		allErrs = append(allErrs, validateSize(u.ClientMaxBodySize, idxPath.Child("client-max-body-size"))...)
+		allErrs = append(allErrs, validateUpstreamHealthCheck(u.HealthCheck, idxPath.Child("healthCheck"))...)
+		allErrs = append(allErrs, validateTime(u.SlowStart, idxPath.Child("slow-start"))...)
 
 		for _, msg := range validation.IsValidPortNum(int(u.Port)) {
 			allErrs = append(allErrs, field.Invalid(idxPath.Child("port"), u.Port, msg))
@@ -154,6 +339,43 @@ func validateUpstreams(upstreams []v1alpha1.Upstream, fieldPath *field.Path, isP
 	}
 
 	return allErrs, upstreamNames
+}
+
+var validNextUpstreamParams = map[string]bool{
+	"error":          true,
+	"timeout":        true,
+	"invalid_header": true,
+	"http_500":       true,
+	"http_502":       true,
+	"http_503":       true,
+	"http_504":       true,
+	"http_403":       true,
+	"http_404":       true,
+	"http_429":       true,
+	"non_idempotent": true,
+	"off":            true,
+	"":               true,
+}
+
+// validateNextUpstream checks the values given for passing queries to a upstream
+func validateNextUpstream(nextUpstream string, fieldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	allParams := sets.String{}
+	if nextUpstream == "" {
+		return allErrs
+	}
+	params := strings.Fields(nextUpstream)
+	for _, para := range params {
+		if !validNextUpstreamParams[para] {
+			allErrs = append(allErrs, field.Invalid(fieldPath, para, "not a valid parameter"))
+		}
+		if allParams.Has(para) {
+			allErrs = append(allErrs, field.Invalid(fieldPath, para, "can not have duplicate parameters"))
+		} else {
+			allParams.Insert(para)
+		}
+	}
+	return allErrs
 }
 
 // validateUpstreamName checks is an upstream name is valid.

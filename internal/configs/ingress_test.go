@@ -123,25 +123,29 @@ func TestPathOrDefaultReturnActual(t *testing.T) {
 
 func createExpectedConfigForCafeIngressEx() version1.IngressNginxConfig {
 	coffeeUpstream := version1.Upstream{
-		Name:     "default-cafe-ingress-cafe.example.com-coffee-svc-80",
-		LBMethod: "random two least_conn",
+		Name:             "default-cafe-ingress-cafe.example.com-coffee-svc-80",
+		LBMethod:         "random two least_conn",
+		UpstreamZoneSize: "256k",
 		UpstreamServers: []version1.UpstreamServer{
 			{
 				Address:     "10.0.0.1",
 				Port:        "80",
 				MaxFails:    1,
+				MaxConns:    0,
 				FailTimeout: "10s",
 			},
 		},
 	}
 	teaUpstream := version1.Upstream{
-		Name:     "default-cafe-ingress-cafe.example.com-tea-svc-80",
-		LBMethod: "random two least_conn",
+		Name:             "default-cafe-ingress-cafe.example.com-tea-svc-80",
+		LBMethod:         "random two least_conn",
+		UpstreamZoneSize: "256k",
 		UpstreamServers: []version1.UpstreamServer{
 			{
 				Address:     "10.0.0.2",
 				Port:        "80",
 				MaxFails:    1,
+				MaxConns:    0,
 				FailTimeout: "10s",
 			},
 		},
@@ -474,25 +478,29 @@ func createMergeableCafeIngress() *MergeableIngresses {
 
 func createExpectedConfigForMergeableCafeIngress() version1.IngressNginxConfig {
 	coffeeUpstream := version1.Upstream{
-		Name:     "default-cafe-ingress-coffee-minion-cafe.example.com-coffee-svc-80",
-		LBMethod: "random two least_conn",
+		Name:             "default-cafe-ingress-coffee-minion-cafe.example.com-coffee-svc-80",
+		LBMethod:         "random two least_conn",
+		UpstreamZoneSize: "256k",
 		UpstreamServers: []version1.UpstreamServer{
 			{
 				Address:     "10.0.0.1",
 				Port:        "80",
 				MaxFails:    1,
+				MaxConns:    0,
 				FailTimeout: "10s",
 			},
 		},
 	}
 	teaUpstream := version1.Upstream{
-		Name:     "default-cafe-ingress-tea-minion-cafe.example.com-tea-svc-80",
-		LBMethod: "random two least_conn",
+		Name:             "default-cafe-ingress-tea-minion-cafe.example.com-tea-svc-80",
+		LBMethod:         "random two least_conn",
+		UpstreamZoneSize: "256k",
 		UpstreamServers: []version1.UpstreamServer{
 			{
 				Address:     "10.0.0.2",
 				Port:        "80",
 				MaxFails:    1,
+				MaxConns:    0,
 				FailTimeout: "10s",
 			},
 		},

@@ -2,25 +2,30 @@ package version2
 
 // VirtualServerConfig holds NGINX configuration for a VirtualServer.
 type VirtualServerConfig struct {
-	Server       Server
-	Upstreams    []Upstream
-	SplitClients []SplitClient
-	Maps         []Map
+	Server        Server
+	Upstreams     []Upstream
+	SplitClients  []SplitClient
+	Maps          []Map
+	StatusMatches []StatusMatch
 }
 
 // Upstream defines an upstream.
 type Upstream struct {
-	Name      string
-	Servers   []UpstreamServer
-	LBMethod  string
-	Keepalive int
+	Name             string
+	Servers          []UpstreamServer
+	LBMethod         string
+	Resolve          bool
+	Keepalive        int
+	MaxFails         int
+	MaxConns         int
+	SlowStart        string
+	FailTimeout      string
+	UpstreamZoneSize string
 }
 
 // UpstreamServer defines an upstream server.
 type UpstreamServer struct {
-	Address     string
-	MaxFails    int
-	FailTimeout string
+	Address string
 }
 
 // Server defines a server.
@@ -36,6 +41,7 @@ type Server struct {
 	Snippets                              []string
 	InternalRedirectLocations             []InternalRedirectLocation
 	Locations                             []Location
+	HealthChecks                          []HealthCheck
 }
 
 // SSL defines SSL configuration for a server.
@@ -49,18 +55,21 @@ type SSL struct {
 
 // Location defines a location.
 type Location struct {
-	Path                 string
-	Snippets             []string
-	ProxyConnectTimeout  string
-	ProxyReadTimeout     string
-	ProxySendTimeout     string
-	ClientMaxBodySize    string
-	ProxyMaxTempFileSize string
-	ProxyBuffering       bool
-	ProxyBuffers         string
-	ProxyBufferSize      string
-	ProxyPass            string
-	HasKeepalive         bool
+	Path                     string
+	Snippets                 []string
+	ProxyConnectTimeout      string
+	ProxyReadTimeout         string
+	ProxySendTimeout         string
+	ClientMaxBodySize        string
+	ProxyMaxTempFileSize     string
+	ProxyBuffering           bool
+	ProxyBuffers             string
+	ProxyBufferSize          string
+	ProxyPass                string
+	ProxyNextUpstream        string
+	ProxyNextUpstreamTimeout string
+	ProxyNextUpstreamTries   int
+	HasKeepalive             bool
 }
 
 // SplitClient defines a split_clients.
@@ -68,6 +77,23 @@ type SplitClient struct {
 	Source        string
 	Variable      string
 	Distributions []Distribution
+}
+
+// HealthCheck defines a HealthCheck for an upstream in a Server.
+type HealthCheck struct {
+	Name                string
+	URI                 string
+	Interval            string
+	Jitter              string
+	Fails               int
+	Passes              int
+	Port                int
+	ProxyPass           string
+	ProxyConnectTimeout string
+	ProxyReadTimeout    string
+	ProxySendTimeout    string
+	Headers             map[string]string
+	Match               string
 }
 
 // Distribution maps weight to a value in a SplitClient.
@@ -93,4 +119,10 @@ type Map struct {
 type Parameter struct {
 	Value  string
 	Result string
+}
+
+// StatusMatch defines a Match block for status codes.
+type StatusMatch struct {
+	Name string
+	Code string
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/golang/glog"
 	"github.com/nginxinc/kubernetes-ingress/internal/nginx"
 	api_v1 "k8s.io/api/core/v1"
 
@@ -13,12 +14,22 @@ import (
 
 const nginx502Server = "unix:/var/run/nginx-502-server.sock"
 
+var incompatibleLBMethodsForSlowStart = map[string]bool{
+	"random":                          true,
+	"ip_hash":                         true,
+	"random two":                      true,
+	"random two least_conn":           true,
+	"random two least_time=header":    true,
+	"random two least_time=last_byte": true,
+}
+
 // VirtualServerEx holds a VirtualServer along with the resources that are referenced in this VirtualServer.
 type VirtualServerEx struct {
 	VirtualServer       *conf_v1alpha1.VirtualServer
 	Endpoints           map[string][]string
 	TLSSecret           *api_v1.Secret
 	VirtualServerRoutes []*conf_v1alpha1.VirtualServerRoute
+	ExternalNameSvcs    map[string]bool
 }
 
 func (vsx *VirtualServerEx) String() string {
@@ -81,7 +92,115 @@ func (namer *variableNamer) GetNameForVariableForRulesRouteMainMap(rulesIndex in
 	return fmt.Sprintf("$vs_%s_rules_%d", namer.safeNsName, rulesIndex)
 }
 
-func generateVirtualServerConfig(virtualServerEx *VirtualServerEx, tlsPemFileName string, baseCfgParams *ConfigParams, isPlus bool) version2.VirtualServerConfig {
+func newHealthCheckWithDefaults(upstream conf_v1alpha1.Upstream, upstreamName string, cfgParams *ConfigParams) *version2.HealthCheck {
+	return &version2.HealthCheck{
+		Name:                upstreamName,
+		URI:                 "/",
+		Interval:            "5s",
+		Jitter:              "0s",
+		Fails:               1,
+		Passes:              1,
+		Port:                int(upstream.Port),
+		ProxyPass:           fmt.Sprintf("%v://%v", generateProxyPassProtocol(upstream.TLS.Enable), upstreamName),
+		ProxyConnectTimeout: generateString(upstream.ProxyConnectTimeout, cfgParams.ProxyConnectTimeout),
+		ProxyReadTimeout:    generateString(upstream.ProxyReadTimeout, cfgParams.ProxyReadTimeout),
+		ProxySendTimeout:    generateString(upstream.ProxySendTimeout, cfgParams.ProxySendTimeout),
+		Headers:             make(map[string]string),
+	}
+}
+
+func generateHealthCheck(upstream conf_v1alpha1.Upstream, upstreamName string, cfgParams *ConfigParams) *version2.HealthCheck {
+	if upstream.HealthCheck == nil || !upstream.HealthCheck.Enable {
+		return nil
+	}
+
+	hc := newHealthCheckWithDefaults(upstream, upstreamName, cfgParams)
+
+	if upstream.HealthCheck.Path != "" {
+		hc.URI = upstream.HealthCheck.Path
+	}
+
+	if upstream.HealthCheck.Interval != "" {
+		hc.Interval = upstream.HealthCheck.Interval
+	}
+
+	if upstream.HealthCheck.Jitter != "" {
+		hc.Jitter = upstream.HealthCheck.Jitter
+	}
+
+	if upstream.HealthCheck.Fails > 0 {
+		hc.Fails = upstream.HealthCheck.Fails
+	}
+
+	if upstream.HealthCheck.Passes > 0 {
+		hc.Passes = upstream.HealthCheck.Passes
+	}
+
+	if upstream.HealthCheck.Port > 0 {
+		hc.Port = upstream.HealthCheck.Port
+	}
+
+	if upstream.HealthCheck.ConnectTimeout != "" {
+		hc.ProxyConnectTimeout = upstream.HealthCheck.ConnectTimeout
+	}
+
+	if upstream.HealthCheck.ReadTimeout != "" {
+		hc.ProxyReadTimeout = upstream.HealthCheck.ReadTimeout
+	}
+
+	if upstream.HealthCheck.SendTimeout != "" {
+		hc.ProxySendTimeout = upstream.HealthCheck.SendTimeout
+	}
+
+	for _, h := range upstream.HealthCheck.Headers {
+		hc.Headers[h.Name] = h.Value
+	}
+
+	if upstream.HealthCheck.TLS != nil {
+		hc.ProxyPass = fmt.Sprintf("%v://%v", generateProxyPassProtocol(upstream.HealthCheck.TLS.Enable), upstreamName)
+	}
+
+	if upstream.HealthCheck.StatusMatch != "" {
+		hc.Match = generateStatusMatchName(upstreamName)
+	}
+
+	return hc
+}
+
+func generateStatusMatchName(upstreamName string) string {
+	return fmt.Sprintf("%s_match", upstreamName)
+}
+
+func generateUpstreamStatusMatch(upstreamName string, status string) version2.StatusMatch {
+	return version2.StatusMatch{
+		Name: generateStatusMatchName(upstreamName),
+		Code: status,
+	}
+}
+
+// GenerateExternalNameSvcKey returns the key to identify an ExternalName service.
+func GenerateExternalNameSvcKey(namespace string, service string) string {
+	return fmt.Sprintf("%v/%v", namespace, service)
+}
+
+func generateEndpointsForUpstream(namespace string, upstream conf_v1alpha1.Upstream, virtualServerEx *VirtualServerEx, isResolverConfigured bool, isPlus bool) []string {
+	endpointsKey := GenerateEndpointsKey(namespace, upstream.Service, upstream.Port)
+	externalNameSvcKey := GenerateExternalNameSvcKey(namespace, upstream.Service)
+	endpoints := virtualServerEx.Endpoints[endpointsKey]
+	if !isPlus && len(endpoints) == 0 {
+		return []string{nginx502Server}
+	}
+
+	_, isExternalNameSvc := virtualServerEx.ExternalNameSvcs[externalNameSvcKey]
+	if isExternalNameSvc && !isResolverConfigured {
+		glog.Warningf("A resolver must be configured for Type ExternalName service %s, no upstream servers will be created", upstream.Service)
+		endpoints = []string{}
+	}
+
+	return endpoints
+}
+
+func generateVirtualServerConfig(virtualServerEx *VirtualServerEx, tlsPemFileName string, baseCfgParams *ConfigParams, isPlus bool, isResolverConfigured bool) version2.VirtualServerConfig {
 	ssl := generateSSLConfig(virtualServerEx.VirtualServer.Spec.TLS, tlsPemFileName, baseCfgParams)
 
 	// crUpstreams maps an UpstreamName to its conf_v1alpha1.Upstream as they are generated
@@ -91,24 +210,46 @@ func generateVirtualServerConfig(virtualServerEx *VirtualServerEx, tlsPemFileNam
 	virtualServerUpstreamNamer := newUpstreamNamerForVirtualServer(virtualServerEx.VirtualServer)
 
 	var upstreams []version2.Upstream
+	var statusMatches []version2.StatusMatch
+	var healthChecks []version2.HealthCheck
 
 	// generate upstreams for VirtualServer
 	for _, u := range virtualServerEx.VirtualServer.Spec.Upstreams {
 		upstreamName := virtualServerUpstreamNamer.GetNameForUpstream(u.Name)
-		endpointsKey := GenerateEndpointsKey(virtualServerEx.VirtualServer.Namespace, u.Service, u.Port)
-		ups := generateUpstream(upstreamName, u, virtualServerEx.Endpoints[endpointsKey], isPlus, baseCfgParams)
+		upstreamNamespace := virtualServerEx.VirtualServer.Namespace
+		endpoints := generateEndpointsForUpstream(upstreamNamespace, u, virtualServerEx, isResolverConfigured, isPlus)
+		// isExternalNameSvc is always false for OSS
+		_, isExternalNameSvc := virtualServerEx.ExternalNameSvcs[GenerateExternalNameSvcKey(upstreamNamespace, u.Service)]
+		ups := generateUpstream(upstreamName, u, isExternalNameSvc, endpoints, baseCfgParams, isPlus)
 		upstreams = append(upstreams, ups)
 		crUpstreams[upstreamName] = u
+
+		if hc := generateHealthCheck(u, upstreamName, baseCfgParams); hc != nil {
+			healthChecks = append(healthChecks, *hc)
+			if u.HealthCheck.StatusMatch != "" {
+				statusMatches = append(statusMatches, generateUpstreamStatusMatch(upstreamName, u.HealthCheck.StatusMatch))
+			}
+		}
 	}
 	// generate upstreams for each VirtualServerRoute
 	for _, vsr := range virtualServerEx.VirtualServerRoutes {
 		upstreamNamer := newUpstreamNamerForVirtualServerRoute(virtualServerEx.VirtualServer, vsr)
 		for _, u := range vsr.Spec.Upstreams {
 			upstreamName := upstreamNamer.GetNameForUpstream(u.Name)
-			endpointsKey := GenerateEndpointsKey(vsr.Namespace, u.Service, u.Port)
-			ups := generateUpstream(upstreamName, u, virtualServerEx.Endpoints[endpointsKey], isPlus, baseCfgParams)
+			upstreamNamespace := vsr.Namespace
+			endpoints := generateEndpointsForUpstream(upstreamNamespace, u, virtualServerEx, isResolverConfigured, isPlus)
+			// isExternalNameSvc is always false for OSS
+			_, isExternalNameSvc := virtualServerEx.ExternalNameSvcs[GenerateExternalNameSvcKey(upstreamNamespace, u.Service)]
+			ups := generateUpstream(upstreamName, u, isExternalNameSvc, endpoints, baseCfgParams, isPlus)
 			upstreams = append(upstreams, ups)
 			crUpstreams[upstreamName] = u
+
+			if hc := generateHealthCheck(u, upstreamName, baseCfgParams); hc != nil {
+				healthChecks = append(healthChecks, *hc)
+				if u.HealthCheck.StatusMatch != "" {
+					statusMatches = append(statusMatches, generateUpstreamStatusMatch(upstreamName, u.HealthCheck.StatusMatch))
+				}
+			}
 		}
 	}
 
@@ -179,9 +320,10 @@ func generateVirtualServerConfig(virtualServerEx *VirtualServerEx, tlsPemFileNam
 	}
 
 	return version2.VirtualServerConfig{
-		Upstreams:    upstreams,
-		SplitClients: splitClients,
-		Maps:         maps,
+		Upstreams:     upstreams,
+		SplitClients:  splitClients,
+		Maps:          maps,
+		StatusMatches: statusMatches,
 		Server: version2.Server{
 			ServerName:                            virtualServerEx.VirtualServer.Spec.Host,
 			ProxyProtocol:                         baseCfgParams.ProxyProtocol,
@@ -194,37 +336,59 @@ func generateVirtualServerConfig(virtualServerEx *VirtualServerEx, tlsPemFileNam
 			Snippets:                              baseCfgParams.ServerSnippets,
 			InternalRedirectLocations:             internalRedirectLocations,
 			Locations:                             locations,
+			HealthChecks:                          healthChecks,
 		},
 	}
 }
 
-func generateUpstream(upstreamName string, upstream conf_v1alpha1.Upstream, endpoints []string, isPlus bool, cfgParams *ConfigParams) version2.Upstream {
+func generateUpstream(upstreamName string, upstream conf_v1alpha1.Upstream, isExternalNameSvc bool, endpoints []string, cfgParams *ConfigParams, isPlus bool) version2.Upstream {
 	var upsServers []version2.UpstreamServer
 
 	for _, e := range endpoints {
 		s := version2.UpstreamServer{
-			Address:     e,
-			MaxFails:    generateIntFromPointer(upstream.MaxFails, cfgParams.MaxFails),
-			FailTimeout: generateTime(upstream.FailTimeout, cfgParams.FailTimeout),
+			Address: e,
 		}
+
 		upsServers = append(upsServers, s)
 	}
 
-	if !isPlus && len(upsServers) == 0 {
-		s := version2.UpstreamServer{
-			Address:     nginx502Server,
-			MaxFails:    generateIntFromPointer(upstream.MaxFails, cfgParams.MaxFails),
-			FailTimeout: generateTime(upstream.FailTimeout, cfgParams.FailTimeout),
-		}
-		upsServers = append(upsServers, s)
+	lbMethod := generateLBMethod(upstream.LBMethod, cfgParams.LBMethod)
+
+	ups := version2.Upstream{
+		Name:             upstreamName,
+		Servers:          upsServers,
+		Resolve:          isExternalNameSvc,
+		LBMethod:         lbMethod,
+		Keepalive:        generateIntFromPointer(upstream.Keepalive, cfgParams.Keepalive),
+		MaxFails:         generateIntFromPointer(upstream.MaxFails, cfgParams.MaxFails),
+		FailTimeout:      generateString(upstream.FailTimeout, cfgParams.FailTimeout),
+		MaxConns:         generateIntFromPointer(upstream.MaxConns, cfgParams.MaxConns),
+		UpstreamZoneSize: cfgParams.UpstreamZoneSize,
 	}
 
-	return version2.Upstream{
-		Name:      upstreamName,
-		Servers:   upsServers,
-		LBMethod:  generateLBMethod(upstream.LBMethod, cfgParams.LBMethod),
-		Keepalive: generateIntFromPointer(upstream.Keepalive, cfgParams.Keepalive),
+	if isPlus {
+		ups.SlowStart = generateSlowStartForPlus(upstream, lbMethod)
 	}
+
+	return ups
+}
+
+func generateSlowStartForPlus(upstream conf_v1alpha1.Upstream, lbMethod string) string {
+	if upstream.SlowStart == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(lbMethod, "hash") {
+		glog.Warningf("slow-start will be disabled for the Upstream %v", upstream.Name)
+		return ""
+	}
+
+	if _, exists := incompatibleLBMethodsForSlowStart[lbMethod]; exists {
+		glog.Warningf("slow-start will be disabled for the Upstream %v", upstream.Name)
+		return ""
+	}
+
+	return upstream.SlowStart
 }
 
 func generateLBMethod(method string, defaultMethod string) string {
@@ -234,13 +398,6 @@ func generateLBMethod(method string, defaultMethod string) string {
 		return ""
 	}
 	return method
-}
-
-func generateTime(time string, defaultTime string) string {
-	if time == "" {
-		return defaultTime
-	}
-	return time
 }
 
 func generateIntFromPointer(n *int, defaultN int) int {
@@ -257,27 +414,37 @@ func upstreamHasKeepalive(upstream conf_v1alpha1.Upstream, cfgParams *ConfigPara
 	return cfgParams.Keepalive != 0
 }
 
-func generateProxyPassProtocol(upstream conf_v1alpha1.Upstream) string {
-	if upstream.TLS.Enable {
+func generateProxyPassProtocol(enableTLS bool) string {
+	if enableTLS {
 		return "https"
 	}
 	return "http"
 }
 
+func generateString(s string, defaultS string) string {
+	if s == "" {
+		return defaultS
+	}
+	return s
+}
+
 func generateLocation(path string, upstreamName string, upstream conf_v1alpha1.Upstream, cfgParams *ConfigParams) version2.Location {
 	return version2.Location{
-		Path:                 path,
-		Snippets:             cfgParams.LocationSnippets,
-		ProxyConnectTimeout:  generateTime(upstream.ProxyConnectTimeout, cfgParams.ProxyConnectTimeout),
-		ProxyReadTimeout:     generateTime(upstream.ProxyReadTimeout, cfgParams.ProxyReadTimeout),
-		ProxySendTimeout:     generateTime(upstream.ProxySendTimeout, cfgParams.ProxySendTimeout),
-		ClientMaxBodySize:    cfgParams.ClientMaxBodySize,
-		ProxyMaxTempFileSize: cfgParams.ProxyMaxTempFileSize,
-		ProxyBuffering:       cfgParams.ProxyBuffering,
-		ProxyBuffers:         cfgParams.ProxyBuffers,
-		ProxyBufferSize:      cfgParams.ProxyBufferSize,
-		ProxyPass:            fmt.Sprintf("%v://%v", generateProxyPassProtocol(upstream), upstreamName),
-		HasKeepalive:         upstreamHasKeepalive(upstream, cfgParams),
+		Path:                     path,
+		Snippets:                 cfgParams.LocationSnippets,
+		ProxyConnectTimeout:      generateString(upstream.ProxyConnectTimeout, cfgParams.ProxyConnectTimeout),
+		ProxyReadTimeout:         generateString(upstream.ProxyReadTimeout, cfgParams.ProxyReadTimeout),
+		ProxySendTimeout:         generateString(upstream.ProxySendTimeout, cfgParams.ProxySendTimeout),
+		ClientMaxBodySize:        generateString(upstream.ClientMaxBodySize, cfgParams.ClientMaxBodySize),
+		ProxyMaxTempFileSize:     cfgParams.ProxyMaxTempFileSize,
+		ProxyBuffering:           cfgParams.ProxyBuffering,
+		ProxyBuffers:             cfgParams.ProxyBuffers,
+		ProxyBufferSize:          cfgParams.ProxyBufferSize,
+		ProxyPass:                fmt.Sprintf("%v://%v", generateProxyPassProtocol(upstream.TLS.Enable), upstreamName),
+		ProxyNextUpstream:        generateString(upstream.ProxyNextUpstream, "error timeout"),
+		ProxyNextUpstreamTimeout: generateString(upstream.ProxyNextUpstreamTimeout, "0s"),
+		ProxyNextUpstreamTries:   upstream.ProxyNextUpstreamTries,
+		HasKeepalive:             upstreamHasKeepalive(upstream, cfgParams),
 	}
 }
 
@@ -515,35 +682,69 @@ func generateSSLConfig(tls *conf_v1alpha1.TLS, tlsPemFileName string, cfgParams 
 	return &ssl
 }
 
-func createUpstreamServersForPlus(virtualServerEx *VirtualServerEx) map[string][]string {
-	upstreamEndpoints := make(map[string][]string)
+func createEndpointsFromUpstream(upstream version2.Upstream) []string {
+	var endpoints []string
 
-	virtualServerUpstreamNamer := newUpstreamNamerForVirtualServer(virtualServerEx.VirtualServer)
+	for _, server := range upstream.Servers {
+		endpoints = append(endpoints, server.Address)
+	}
+
+	return endpoints
+}
+
+func createUpstreamsForPlus(virtualServerEx *VirtualServerEx, baseCfgParams *ConfigParams) []version2.Upstream {
+	var upstreams []version2.Upstream
+	isPlus := true
+	upstreamNamer := newUpstreamNamerForVirtualServer(virtualServerEx.VirtualServer)
 
 	for _, u := range virtualServerEx.VirtualServer.Spec.Upstreams {
-		endpointsKey := GenerateEndpointsKey(virtualServerEx.VirtualServer.Namespace, u.Service, u.Port)
-		name := virtualServerUpstreamNamer.GetNameForUpstream(u.Name)
+		isExternalNameSvc := virtualServerEx.ExternalNameSvcs[GenerateExternalNameSvcKey(virtualServerEx.VirtualServer.Namespace, u.Service)]
+		if isExternalNameSvc {
+			glog.V(3).Infof("Service %s is Type ExternalName, skipping NGINX Plus endpoints update via API", u.Service)
+			continue
+		}
 
-		upstreamEndpoints[name] = virtualServerEx.Endpoints[endpointsKey]
+		upstreamName := upstreamNamer.GetNameForUpstream(u.Name)
+		upstreamNamespace := virtualServerEx.VirtualServer.Namespace
+
+		endpointsKey := GenerateEndpointsKey(upstreamNamespace, u.Service, u.Port)
+		endpoints := virtualServerEx.Endpoints[endpointsKey]
+
+		ups := generateUpstream(upstreamName, u, isExternalNameSvc, endpoints, baseCfgParams, isPlus)
+		upstreams = append(upstreams, ups)
 	}
 
 	for _, vsr := range virtualServerEx.VirtualServerRoutes {
-		upstreamNamer := newUpstreamNamerForVirtualServerRoute(virtualServerEx.VirtualServer, vsr)
+		upstreamNamer = newUpstreamNamerForVirtualServerRoute(virtualServerEx.VirtualServer, vsr)
 		for _, u := range vsr.Spec.Upstreams {
-			endpointsKey := GenerateEndpointsKey(vsr.Namespace, u.Service, u.Port)
-			name := upstreamNamer.GetNameForUpstream(u.Name)
+			isExternalNameSvc := virtualServerEx.ExternalNameSvcs[GenerateExternalNameSvcKey(vsr.Namespace, u.Service)]
+			if isExternalNameSvc {
+				glog.V(3).Infof("Service %s is Type ExternalName, skipping NGINX Plus endpoints update via API", u.Service)
+				continue
+			}
 
-			upstreamEndpoints[name] = virtualServerEx.Endpoints[endpointsKey]
+			upstreamName := upstreamNamer.GetNameForUpstream(u.Name)
+			upstreamNamespace := vsr.Namespace
+
+			endpointsKey := GenerateEndpointsKey(upstreamNamespace, u.Service, u.Port)
+			endpoints := virtualServerEx.Endpoints[endpointsKey]
+
+			ups := generateUpstream(upstreamName, u, isExternalNameSvc, endpoints, baseCfgParams, isPlus)
+			upstreams = append(upstreams, ups)
 		}
 	}
 
-	return upstreamEndpoints
+	return upstreams
 }
 
-func createUpstreamServersConfig(baseCfgParams *ConfigParams) nginx.ServerConfig {
+func createUpstreamServersConfigForPlus(upstream version2.Upstream) nginx.ServerConfig {
+	if len(upstream.Servers) == 0 {
+		return nginx.ServerConfig{}
+	}
 	return nginx.ServerConfig{
-		MaxFails:    baseCfgParams.MaxFails,
-		FailTimeout: baseCfgParams.FailTimeout,
-		SlowStart:   baseCfgParams.SlowStart,
+		MaxFails:    upstream.MaxFails,
+		FailTimeout: upstream.FailTimeout,
+		MaxConns:    upstream.MaxConns,
+		SlowStart:   upstream.SlowStart,
 	}
 }

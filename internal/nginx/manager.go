@@ -11,7 +11,7 @@ import (
 	"github.com/nginxinc/kubernetes-ingress/internal/metrics/collectors"
 
 	"github.com/golang/glog"
-	"github.com/nginxinc/nginx-plus-go-sdk/client"
+	"github.com/nginxinc/nginx-plus-go-client/client"
 )
 
 // TLSSecretFileMode defines the default filemode for files with TLS Secrets.
@@ -26,6 +26,7 @@ const jsonFileForOpenTracingTracer = "/etc/tracer-config.json"
 // ServerConfig holds the config data for an upstream server in NGINX Plus.
 type ServerConfig struct {
 	MaxFails    int
+	MaxConns    int
 	FailTimeout string
 	SlowStart   string
 }
@@ -265,6 +266,7 @@ func (lm *LocalManager) UpdateServersInPlus(upstream string, servers []string, c
 		upsServers = append(upsServers, client.UpstreamServer{
 			Server:      s,
 			MaxFails:    config.MaxFails,
+			MaxConns:    config.MaxConns,
 			FailTimeout: config.FailTimeout,
 			SlowStart:   config.SlowStart,
 		})

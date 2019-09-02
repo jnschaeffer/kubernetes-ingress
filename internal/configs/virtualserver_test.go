@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -187,10 +188,10 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 			},
 		},
 		Endpoints: map[string][]string{
-			"default/tea-svc:80": []string{
+			"default/tea-svc:80": {
 				"10.0.0.20:80",
 			},
-			"default/coffee-svc:80": []string{
+			"default/coffee-svc:80": {
 				"10.0.0.30:80",
 			},
 		},
@@ -263,22 +264,29 @@ func TestGenerateVirtualServerConfig(t *testing.T) {
 			Snippets:                              []string{"# server snippet"},
 			Locations: []version2.Location{
 				{
-					Path:         "/tea",
-					ProxyPass:    "http://vs_default_cafe_tea",
-					HasKeepalive: true,
+					Path:                     "/tea",
+					ProxyPass:                "http://vs_default_cafe_tea",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
+					HasKeepalive:             true,
 				},
 				{
-					Path:         "/coffee",
-					ProxyPass:    "http://vs_default_cafe_vsr_default_coffee_coffee",
-					HasKeepalive: true,
+					Path:                     "/coffee",
+					ProxyPass:                "http://vs_default_cafe_vsr_default_coffee_coffee",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
+					HasKeepalive:             true,
 				},
 			},
 		},
 	}
 
 	isPlus := false
+	isResolverConfigured := false
 	tlsPemFileName := ""
-	result := generateVirtualServerConfig(&virtualServerEx, tlsPemFileName, &baseCfgParams, isPlus)
+	result := generateVirtualServerConfig(&virtualServerEx, tlsPemFileName, &baseCfgParams, isPlus, isResolverConfigured)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateVirtualServerConfig returned \n%v but expected \n%v", result, expected)
 	}
@@ -326,16 +334,16 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 			},
 		},
 		Endpoints: map[string][]string{
-			"default/tea-svc-v1:80": []string{
+			"default/tea-svc-v1:80": {
 				"10.0.0.20:80",
 			},
-			"default/tea-svc-v2:80": []string{
+			"default/tea-svc-v2:80": {
 				"10.0.0.21:80",
 			},
-			"default/coffee-svc-v1:80": []string{
+			"default/coffee-svc-v1:80": {
 				"10.0.0.30:80",
 			},
-			"default/coffee-svc-v2:80": []string{
+			"default/coffee-svc-v2:80": {
 				"10.0.0.31:80",
 			},
 		},
@@ -460,28 +468,41 @@ func TestGenerateVirtualServerConfigForVirtualServerWithSplits(t *testing.T) {
 			},
 			Locations: []version2.Location{
 				{
-					Path:      "@splits_0_split_0",
-					ProxyPass: "http://vs_default_cafe_tea-v1",
+					Path:                     "@splits_0_split_0",
+					ProxyPass:                "http://vs_default_cafe_tea-v1",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 				{
-					Path:      "@splits_0_split_1",
-					ProxyPass: "http://vs_default_cafe_tea-v2",
+					Path:                     "@splits_0_split_1",
+					ProxyPass:                "http://vs_default_cafe_tea-v2",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 				{
-					Path:      "@splits_1_split_0",
-					ProxyPass: "http://vs_default_cafe_vsr_default_coffee_coffee-v1",
+					Path:                     "@splits_1_split_0",
+					ProxyPass:                "http://vs_default_cafe_vsr_default_coffee_coffee-v1",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 				{
-					Path:      "@splits_1_split_1",
-					ProxyPass: "http://vs_default_cafe_vsr_default_coffee_coffee-v2",
+					Path:                     "@splits_1_split_1",
+					ProxyPass:                "http://vs_default_cafe_vsr_default_coffee_coffee-v2",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 			},
 		},
 	}
 
 	isPlus := false
+	isResolverConfigured := false
 	tlsPemFileName := ""
-	result := generateVirtualServerConfig(&virtualServerEx, tlsPemFileName, &baseCfgParams, isPlus)
+	result := generateVirtualServerConfig(&virtualServerEx, tlsPemFileName, &baseCfgParams, isPlus, isResolverConfigured)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateVirtualServerConfig returned \n%v but expected \n%v", result, expected)
 	}
@@ -536,16 +557,16 @@ func TestGenerateVirtualServerConfigForVirtualServerWithRules(t *testing.T) {
 			},
 		},
 		Endpoints: map[string][]string{
-			"default/tea-svc-v1:80": []string{
+			"default/tea-svc-v1:80": {
 				"10.0.0.20:80",
 			},
-			"default/tea-svc-v2:80": []string{
+			"default/tea-svc-v2:80": {
 				"10.0.0.21:80",
 			},
-			"default/coffee-svc-v1:80": []string{
+			"default/coffee-svc-v1:80": {
 				"10.0.0.30:80",
 			},
-			"default/coffee-svc-v2:80": []string{
+			"default/coffee-svc-v2:80": {
 				"10.0.0.31:80",
 			},
 		},
@@ -704,28 +725,41 @@ func TestGenerateVirtualServerConfigForVirtualServerWithRules(t *testing.T) {
 			},
 			Locations: []version2.Location{
 				{
-					Path:      "@rules_0_match_0",
-					ProxyPass: "http://vs_default_cafe_tea-v2",
+					Path:                     "@rules_0_match_0",
+					ProxyPass:                "http://vs_default_cafe_tea-v2",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 				{
-					Path:      "@rules_0_default",
-					ProxyPass: "http://vs_default_cafe_tea-v1",
+					Path:                     "@rules_0_default",
+					ProxyPass:                "http://vs_default_cafe_tea-v1",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 				{
-					Path:      "@rules_1_match_0",
-					ProxyPass: "http://vs_default_cafe_vsr_default_coffee_coffee-v2",
+					Path:                     "@rules_1_match_0",
+					ProxyPass:                "http://vs_default_cafe_vsr_default_coffee_coffee-v2",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 				{
-					Path:      "@rules_1_default",
-					ProxyPass: "http://vs_default_cafe_vsr_default_coffee_coffee-v1",
+					Path:                     "@rules_1_default",
+					ProxyPass:                "http://vs_default_cafe_vsr_default_coffee_coffee-v1",
+					ProxyNextUpstream:        "error timeout",
+					ProxyNextUpstreamTimeout: "0s",
+					ProxyNextUpstreamTries:   0,
 				},
 			},
 		},
 	}
 
 	isPlus := false
+	isResolverConfigured := false
 	tlsPemFileName := ""
-	result := generateVirtualServerConfig(&virtualServerEx, tlsPemFileName, &baseCfgParams, isPlus)
+	result := generateVirtualServerConfig(&virtualServerEx, tlsPemFileName, &baseCfgParams, isPlus, isResolverConfigured)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateVirtualServerConfig returned \n%v but expected \n%v", result, expected)
 	}
@@ -733,32 +767,36 @@ func TestGenerateVirtualServerConfigForVirtualServerWithRules(t *testing.T) {
 
 func TestGenerateUpstream(t *testing.T) {
 	name := "test-upstream"
-	upstream := conf_v1alpha1.Upstream{}
+	upstream := conf_v1alpha1.Upstream{Service: name, Port: 80, SlowStart: "10s"}
 	endpoints := []string{
 		"192.168.10.10:8080",
 	}
-	isPlus := false
 	cfgParams := ConfigParams{
-		LBMethod:    "random",
-		MaxFails:    1,
-		FailTimeout: "10s",
-		Keepalive:   21,
+		LBMethod:         "random",
+		MaxFails:         1,
+		MaxConns:         0,
+		FailTimeout:      "10s",
+		Keepalive:        21,
+		UpstreamZoneSize: "256k",
 	}
 
 	expected := version2.Upstream{
 		Name: "test-upstream",
 		Servers: []version2.UpstreamServer{
 			{
-				Address:     "192.168.10.10:8080",
-				MaxFails:    1,
-				FailTimeout: "10s",
+				Address: "192.168.10.10:8080",
 			},
 		},
-		LBMethod:  "random",
-		Keepalive: 21,
+		MaxFails:         1,
+		MaxConns:         0,
+		FailTimeout:      "10s",
+		LBMethod:         "random",
+		Keepalive:        21,
+		UpstreamZoneSize: "256k",
+		SlowStart:        "",
 	}
 
-	result := generateUpstream(name, upstream, endpoints, isPlus, &cfgParams)
+	result := generateUpstream(name, upstream, false, endpoints, &cfgParams, true)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("generateUpstream() returned %v but expected %v", result, expected)
 	}
@@ -771,7 +809,6 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 	endpoints := []string{
 		"192.168.10.10:8080",
 	}
-	isPlus := false
 
 	tests := []struct {
 		upstream  conf_v1alpha1.Upstream
@@ -780,7 +817,7 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 		msg       string
 	}{
 		{
-			conf_v1alpha1.Upstream{Keepalive: &keepalive},
+			conf_v1alpha1.Upstream{Keepalive: &keepalive, Service: name, Port: 80},
 			&ConfigParams{Keepalive: 21},
 			version2.Upstream{
 				Name: "test-upstream",
@@ -794,7 +831,7 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 			"upstream keepalive set, configparam set",
 		},
 		{
-			conf_v1alpha1.Upstream{},
+			conf_v1alpha1.Upstream{Service: name, Port: 80},
 			&ConfigParams{Keepalive: 21},
 			version2.Upstream{
 				Name: "test-upstream",
@@ -808,7 +845,7 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 			"upstream keepalive not set, configparam set",
 		},
 		{
-			conf_v1alpha1.Upstream{Keepalive: &noKeepalive},
+			conf_v1alpha1.Upstream{Keepalive: &noKeepalive, Service: name, Port: 80},
 			&ConfigParams{Keepalive: 21},
 			version2.Upstream{
 				Name: "test-upstream",
@@ -823,49 +860,34 @@ func TestGenerateUpstreamWithKeepalive(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := generateUpstream(name, test.upstream, endpoints, isPlus, test.cfgParams)
+		result := generateUpstream(name, test.upstream, false, endpoints, test.cfgParams, false)
 		if !reflect.DeepEqual(result, test.expected) {
 			t.Errorf("generateUpstream() returned %v but expected %v for the case of %v", result, test.expected, test.msg)
 		}
 	}
 }
 
-func TestGenerateUpstreamForZeroEndpoints(t *testing.T) {
+func TestGenerateUpstreamForExternalNameService(t *testing.T) {
 	name := "test-upstream"
-	upstream := conf_v1alpha1.Upstream{}
-	var endpoints []string // nil
-	cfgParams := ConfigParams{
-		MaxFails:    1,
-		FailTimeout: "10s",
-	}
+	endpoints := []string{"example.com"}
+	upstream := conf_v1alpha1.Upstream{Service: name}
+	cfgParams := ConfigParams{}
 
-	isPlus := false
-	expectedForNGINX := version2.Upstream{
-		Name: "test-upstream",
+	expected := version2.Upstream{
+		Name: name,
 		Servers: []version2.UpstreamServer{
 			{
-				Address:     nginx502Server,
-				MaxFails:    1,
-				FailTimeout: "10s",
+				Address: "example.com",
 			},
 		},
+		Resolve: true,
 	}
 
-	result := generateUpstream(name, upstream, endpoints, isPlus, &cfgParams)
-	if !reflect.DeepEqual(result, expectedForNGINX) {
-		t.Errorf("generateUpstream(isPlus=%v) returned %v but expected %v", isPlus, result, expectedForNGINX)
+	result := generateUpstream(name, upstream, true, endpoints, &cfgParams, false)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("generateUpstream() returned %v but expected %v", result, expected)
 	}
 
-	isPlus = true
-	expectedForNGINXPlus := version2.Upstream{
-		Name:    "test-upstream",
-		Servers: nil,
-	}
-
-	result = generateUpstream(name, upstream, endpoints, isPlus, &cfgParams)
-	if !reflect.DeepEqual(result, expectedForNGINXPlus) {
-		t.Errorf("generateUpstream(isPlus=%v) returned %v but expected %v", isPlus, result, expectedForNGINXPlus)
-	}
 }
 
 func TestGenerateProxyPassProtocol(t *testing.T) {
@@ -888,9 +910,32 @@ func TestGenerateProxyPassProtocol(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := generateProxyPassProtocol(test.upstream)
+		result := generateProxyPassProtocol(test.upstream.TLS.Enable)
 		if result != test.expected {
-			t.Errorf("generateProxyPassProtocol() returned %v but expected %v", result, test.expected)
+			t.Errorf("generateProxyPassProtocol(%v) returned %v but expected %v", test.upstream.TLS.Enable, result, test.expected)
+		}
+	}
+}
+
+func TestGenerateString(t *testing.T) {
+	tests := []struct {
+		inputS   string
+		expected string
+	}{
+		{
+			inputS:   "http_404",
+			expected: "http_404",
+		},
+		{
+			inputS:   "",
+			expected: "error timeout",
+		},
+	}
+
+	for _, test := range tests {
+		result := generateString(test.inputS, "error timeout")
+		if result != test.expected {
+			t.Errorf("generateString() return %v but expected %v", result, test.expected)
 		}
 	}
 }
@@ -911,17 +956,20 @@ func TestGenerateLocation(t *testing.T) {
 	upstreamName := "test-upstream"
 
 	expected := version2.Location{
-		Path:                 "/",
-		Snippets:             []string{"# location snippet"},
-		ProxyConnectTimeout:  "30s",
-		ProxyReadTimeout:     "31s",
-		ProxySendTimeout:     "32s",
-		ClientMaxBodySize:    "1m",
-		ProxyMaxTempFileSize: "1024m",
-		ProxyBuffering:       true,
-		ProxyBuffers:         "8 4k",
-		ProxyBufferSize:      "4k",
-		ProxyPass:            "http://test-upstream",
+		Path:                     "/",
+		Snippets:                 []string{"# location snippet"},
+		ProxyConnectTimeout:      "30s",
+		ProxyReadTimeout:         "31s",
+		ProxySendTimeout:         "32s",
+		ClientMaxBodySize:        "1m",
+		ProxyMaxTempFileSize:     "1024m",
+		ProxyBuffering:           true,
+		ProxyBuffers:             "8 4k",
+		ProxyBufferSize:          "4k",
+		ProxyPass:                "http://test-upstream",
+		ProxyNextUpstream:        "error timeout",
+		ProxyNextUpstreamTimeout: "0s",
+		ProxyNextUpstreamTries:   0,
 	}
 
 	result := generateLocation(path, upstreamName, conf_v1alpha1.Upstream{}, &cfgParams)
@@ -1032,6 +1080,11 @@ func TestCreateUpstreamServersForPlus(t *testing.T) {
 						Service: "test-svc",
 						Port:    80,
 					},
+					{
+						Name:    "external",
+						Service: "external-svc",
+						Port:    80,
+					},
 				},
 				Routes: []conf_v1alpha1.Route{
 					{
@@ -1042,17 +1095,27 @@ func TestCreateUpstreamServersForPlus(t *testing.T) {
 						Path:  "/coffee",
 						Route: "default/coffee",
 					},
+					{
+						Path:     "/external",
+						Upstream: "external",
+					},
 				},
 			},
 		},
 		Endpoints: map[string][]string{
-			"default/tea-svc:80": []string{
+			"default/tea-svc:80": {
 				"10.0.0.20:80",
 			},
-			"default/test-svc:80": []string{},
-			"default/coffee-svc:80": []string{
+			"default/test-svc:80": {},
+			"default/coffee-svc:80": {
 				"10.0.0.30:80",
 			},
+			"default/external-svc:80": {
+				"example.com:80",
+			},
+		},
+		ExternalNameSvcs: map[string]bool{
+			"default/external-svc": true,
 		},
 		VirtualServerRoutes: []*conf_v1alpha1.VirtualServerRoute{
 			{
@@ -1080,38 +1143,68 @@ func TestCreateUpstreamServersForPlus(t *testing.T) {
 		},
 	}
 
-	expected := map[string][]string{
-		"vs_default_cafe_tea": []string{
-			"10.0.0.20:80",
+	expected := []version2.Upstream{
+		{
+			Name: "vs_default_cafe_tea",
+			Servers: []version2.UpstreamServer{
+				{
+					Address: "10.0.0.20:80",
+				},
+			},
 		},
-		"vs_default_cafe_test": []string{},
-		"vs_default_cafe_vsr_default_coffee_coffee": []string{
-			"10.0.0.30:80",
+		{
+			Name:    "vs_default_cafe_test",
+			Servers: nil,
+		},
+		{
+			Name: "vs_default_cafe_vsr_default_coffee_coffee",
+			Servers: []version2.UpstreamServer{
+				{
+					Address: "10.0.0.30:80",
+				},
+			},
 		},
 	}
 
-	result := createUpstreamServersForPlus(&virtualServerEx)
+	result := createUpstreamsForPlus(&virtualServerEx, &ConfigParams{})
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("createUpstreamServersForPlus returned %v but expected %v", result, expected)
 	}
 }
 
-func TestCreateUpstreamServersConfig(t *testing.T) {
-	baseCfgParams := ConfigParams{
-		MaxFails:    5,
+func TestCreateUpstreamServersConfigForPlus(t *testing.T) {
+	upstream := version2.Upstream{
+		Servers: []version2.UpstreamServer{
+			{
+				Address: "10.0.0.20:80",
+			},
+		},
+		MaxFails:    21,
+		MaxConns:    16,
 		FailTimeout: "30s",
 		SlowStart:   "50s",
 	}
 
 	expected := nginx.ServerConfig{
-		MaxFails:    5,
+		MaxFails:    21,
+		MaxConns:    16,
 		FailTimeout: "30s",
 		SlowStart:   "50s",
 	}
 
-	result := createUpstreamServersConfig(&baseCfgParams)
+	result := createUpstreamServersConfigForPlus(upstream)
 	if !reflect.DeepEqual(result, expected) {
-		t.Errorf("createUpstreamServersConfig returned %v but expected %v", result, expected)
+		t.Errorf("createUpstreamServersConfigForPlus returned %v but expected %v", result, expected)
+	}
+}
+
+func TestCreateUpstreamServersConfigForPlusNoUpstreams(t *testing.T) {
+	noUpstream := version2.Upstream{}
+	expected := nginx.ServerConfig{}
+
+	result := createUpstreamServersConfigForPlus(noUpstream)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("createUpstreamServersConfigForPlus returned %v but expected %v", result, expected)
 	}
 }
 
@@ -1156,12 +1249,18 @@ func TestGenerateSplitRouteConfig(t *testing.T) {
 		},
 		Locations: []version2.Location{
 			{
-				Path:      "@splits_1_split_0",
-				ProxyPass: "http://vs_default_cafe_coffee-v1",
+				Path:                     "@splits_1_split_0",
+				ProxyPass:                "http://vs_default_cafe_coffee-v1",
+				ProxyNextUpstream:        "error timeout",
+				ProxyNextUpstreamTimeout: "0s",
+				ProxyNextUpstreamTries:   0,
 			},
 			{
-				Path:      "@splits_1_split_1",
-				ProxyPass: "http://vs_default_cafe_coffee-v2",
+				Path:                     "@splits_1_split_1",
+				ProxyPass:                "http://vs_default_cafe_coffee-v2",
+				ProxyNextUpstream:        "error timeout",
+				ProxyNextUpstreamTimeout: "0s",
+				ProxyNextUpstreamTries:   0,
 			},
 		},
 		InternalRedirectLocation: version2.InternalRedirectLocation{
@@ -1364,16 +1463,25 @@ func TestGenerateRulesRouteConfig(t *testing.T) {
 		},
 		Locations: []version2.Location{
 			{
-				Path:      "@rules_1_match_0",
-				ProxyPass: "http://vs_default_cafe_coffee-v1",
+				Path:                     "@rules_1_match_0",
+				ProxyPass:                "http://vs_default_cafe_coffee-v1",
+				ProxyNextUpstream:        "error timeout",
+				ProxyNextUpstreamTimeout: "0s",
+				ProxyNextUpstreamTries:   0,
 			},
 			{
-				Path:      "@rules_1_match_1",
-				ProxyPass: "http://vs_default_cafe_coffee-v2",
+				Path:                     "@rules_1_match_1",
+				ProxyPass:                "http://vs_default_cafe_coffee-v2",
+				ProxyNextUpstream:        "error timeout",
+				ProxyNextUpstreamTimeout: "0s",
+				ProxyNextUpstreamTries:   0,
 			},
 			{
-				Path:      "@rules_1_default",
-				ProxyPass: "http://vs_default_cafe_tea",
+				Path:                     "@rules_1_default",
+				ProxyPass:                "http://vs_default_cafe_tea",
+				ProxyNextUpstream:        "error timeout",
+				ProxyNextUpstreamTimeout: "0s",
+				ProxyNextUpstreamTries:   0,
 			},
 		},
 		InternalRedirectLocation: version2.InternalRedirectLocation{
@@ -1600,5 +1708,364 @@ func TestUpstreamHasKeepalive(t *testing.T) {
 		if result != test.expected {
 			t.Errorf("upstreamHasKeepalive() returned %v, but expected %v for the case of %v", result, test.expected, test.msg)
 		}
+	}
+}
+
+func TestNewHealthCheckWithDefaults(t *testing.T) {
+	upstreamName := "test-upstream"
+	baseCfgParams := &ConfigParams{
+		ProxySendTimeout:    "5s",
+		ProxyReadTimeout:    "5s",
+		ProxyConnectTimeout: "5s",
+	}
+	expected := &version2.HealthCheck{
+		Name:                upstreamName,
+		ProxySendTimeout:    "5s",
+		ProxyReadTimeout:    "5s",
+		ProxyConnectTimeout: "5s",
+		ProxyPass:           fmt.Sprintf("http://%v", upstreamName),
+		URI:                 "/",
+		Interval:            "5s",
+		Jitter:              "0s",
+		Fails:               1,
+		Passes:              1,
+		Headers:             make(map[string]string),
+	}
+
+	result := newHealthCheckWithDefaults(conf_v1alpha1.Upstream{}, upstreamName, baseCfgParams)
+
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("newHealthCheckWithDefaults returned \n%v but expected \n%v", result, expected)
+	}
+}
+
+func TestGenerateHealthCheck(t *testing.T) {
+	upstreamName := "test-upstream"
+	tests := []struct {
+		upstream     conf_v1alpha1.Upstream
+		upstreamName string
+		expected     *version2.HealthCheck
+		msg          string
+	}{
+		{
+
+			upstream: conf_v1alpha1.Upstream{
+				HealthCheck: &conf_v1alpha1.HealthCheck{
+					Enable:         true,
+					Path:           "/healthz",
+					Interval:       "5s",
+					Jitter:         "2s",
+					Fails:          3,
+					Passes:         2,
+					Port:           8080,
+					ConnectTimeout: "20s",
+					SendTimeout:    "20s",
+					ReadTimeout:    "20s",
+					Headers: []conf_v1alpha1.Header{
+						{
+							Name:  "Host",
+							Value: "my.service",
+						},
+						{
+							Name:  "User-Agent",
+							Value: "nginx",
+						},
+					},
+					StatusMatch: "! 500",
+				},
+			},
+			upstreamName: upstreamName,
+			expected: &version2.HealthCheck{
+				Name:                upstreamName,
+				ProxyConnectTimeout: "20s",
+				ProxySendTimeout:    "20s",
+				ProxyReadTimeout:    "20s",
+				ProxyPass:           fmt.Sprintf("http://%v", upstreamName),
+				URI:                 "/healthz",
+				Interval:            "5s",
+				Jitter:              "2s",
+				Fails:               3,
+				Passes:              2,
+				Port:                8080,
+				Headers: map[string]string{
+					"Host":       "my.service",
+					"User-Agent": "nginx",
+				},
+				Match: fmt.Sprintf("%v_match", upstreamName),
+			},
+			msg: "HealthCheck with changed parameters",
+		},
+		{
+			upstream: conf_v1alpha1.Upstream{
+				HealthCheck: &conf_v1alpha1.HealthCheck{
+					Enable: true,
+				},
+				ProxyConnectTimeout: "30s",
+				ProxyReadTimeout:    "30s",
+				ProxySendTimeout:    "30s",
+			},
+			upstreamName: upstreamName,
+			expected: &version2.HealthCheck{
+				Name:                upstreamName,
+				ProxyConnectTimeout: "30s",
+				ProxyReadTimeout:    "30s",
+				ProxySendTimeout:    "30s",
+				ProxyPass:           fmt.Sprintf("http://%v", upstreamName),
+				URI:                 "/",
+				Interval:            "5s",
+				Jitter:              "0s",
+				Fails:               1,
+				Passes:              1,
+				Headers:             make(map[string]string),
+			},
+			msg: "HealthCheck with default parameters from Upstream",
+		},
+		{
+			upstream: conf_v1alpha1.Upstream{
+				HealthCheck: &conf_v1alpha1.HealthCheck{
+					Enable: true,
+				},
+			},
+			upstreamName: upstreamName,
+			expected: &version2.HealthCheck{
+				Name:                upstreamName,
+				ProxyConnectTimeout: "5s",
+				ProxyReadTimeout:    "5s",
+				ProxySendTimeout:    "5s",
+				ProxyPass:           fmt.Sprintf("http://%v", upstreamName),
+				URI:                 "/",
+				Interval:            "5s",
+				Jitter:              "0s",
+				Fails:               1,
+				Passes:              1,
+				Headers:             make(map[string]string),
+			},
+			msg: "HealthCheck with default parameters from ConfigMap (not defined in Upstream)",
+		},
+		{
+			upstream:     conf_v1alpha1.Upstream{},
+			upstreamName: upstreamName,
+			expected:     nil,
+			msg:          "HealthCheck not enabled",
+		},
+	}
+
+	baseCfgParams := &ConfigParams{
+		ProxySendTimeout:    "5s",
+		ProxyReadTimeout:    "5s",
+		ProxyConnectTimeout: "5s",
+	}
+
+	for _, test := range tests {
+		result := generateHealthCheck(test.upstream, test.upstreamName, baseCfgParams)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateHealthCheck returned \n%v but expected \n%v \n for case: %v", result, test.expected, test.msg)
+		}
+	}
+}
+
+func TestGenerateEndpointsForUpstream(t *testing.T) {
+	name := "test"
+	namespace := "test-namespace"
+
+	tests := []struct {
+		upstream             conf_v1alpha1.Upstream
+		vsEx                 *VirtualServerEx
+		isPlus               bool
+		isResolverConfigured bool
+		expected             []string
+		msg                  string
+	}{
+		{
+			upstream: conf_v1alpha1.Upstream{
+				Service: name,
+				Port:    80,
+			},
+			vsEx: &VirtualServerEx{
+				VirtualServer: &conf_v1alpha1.VirtualServer{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      name,
+						Namespace: namespace,
+					},
+				},
+				Endpoints: map[string][]string{
+					"test-namespace/test:80": {"example.com:80"},
+				},
+				ExternalNameSvcs: map[string]bool{
+					"test-namespace/test": true,
+				},
+			},
+			isPlus:               true,
+			isResolverConfigured: true,
+			expected:             []string{"example.com:80"},
+			msg:                  "ExternalName service",
+		},
+		{
+			upstream: conf_v1alpha1.Upstream{
+				Service: name,
+				Port:    80,
+			},
+			vsEx: &VirtualServerEx{
+				VirtualServer: &conf_v1alpha1.VirtualServer{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      name,
+						Namespace: namespace,
+					},
+				},
+				Endpoints: map[string][]string{
+					"test-namespace/test:80": {"example.com:80"},
+				},
+				ExternalNameSvcs: map[string]bool{
+					"test-namespace/test": true,
+				},
+			},
+			isPlus:               true,
+			isResolverConfigured: false,
+			expected:             []string{},
+			msg:                  "ExternalName service without resolver configured",
+		},
+		{
+			upstream: conf_v1alpha1.Upstream{
+				Service: name,
+				Port:    8080,
+			},
+			vsEx: &VirtualServerEx{
+				VirtualServer: &conf_v1alpha1.VirtualServer{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      name,
+						Namespace: namespace,
+					},
+				},
+				Endpoints: map[string][]string{
+					"test-namespace/test:8080": {"192.168.10.10:8080"},
+				},
+			},
+			isPlus:               false,
+			isResolverConfigured: false,
+			expected:             []string{"192.168.10.10:8080"},
+			msg:                  "Service with endpoints",
+		},
+		{
+			upstream: conf_v1alpha1.Upstream{
+				Service: name,
+				Port:    8080,
+			},
+			vsEx: &VirtualServerEx{
+				VirtualServer: &conf_v1alpha1.VirtualServer{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      name,
+						Namespace: namespace,
+					},
+				},
+				Endpoints: map[string][]string{},
+			},
+			isPlus:               false,
+			isResolverConfigured: false,
+			expected:             []string{nginx502Server},
+			msg:                  "Service with no endpoints",
+		},
+		{
+			upstream: conf_v1alpha1.Upstream{
+				Service: name,
+				Port:    8080,
+			},
+			vsEx: &VirtualServerEx{
+				VirtualServer: &conf_v1alpha1.VirtualServer{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      name,
+						Namespace: namespace,
+					},
+				},
+				Endpoints: map[string][]string{},
+			},
+			isPlus:               true,
+			isResolverConfigured: false,
+			expected:             nil,
+			msg:                  "Service with no endpoints",
+		},
+	}
+
+	for _, test := range tests {
+		result := generateEndpointsForUpstream(namespace, test.upstream, test.vsEx, test.isResolverConfigured, test.isPlus)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateEndpointsForUpstream(isPlus=%v, isResolverConfigured=%v) returned %v, but expected %v for case: %v",
+				test.isPlus, test.isResolverConfigured, result, test.expected, test.msg)
+		}
+	}
+}
+
+func TestGenerateSlowStartForPlusWithInCompatibleLBMethods(t *testing.T) {
+	serviceName := "test-slowstart-with-incompatible-LBMethods"
+	upstream := conf_v1alpha1.Upstream{Service: serviceName, Port: 80, SlowStart: "10s"}
+	expected := ""
+
+	var tests = []string{
+		"random",
+		"ip_hash",
+		"hash 123",
+		"random two",
+		"random two least_conn",
+		"random two least_time=header",
+		"random two least_time=last_byte",
+	}
+
+	for _, lbMethod := range tests {
+		result := generateSlowStartForPlus(upstream, lbMethod)
+
+		if !reflect.DeepEqual(result, expected) {
+			t.Errorf("generateSlowStartForPlus returned %v, but expected %v for lbMethod %v", result, expected, lbMethod)
+		}
+	}
+
+}
+
+func TestGenerateSlowStartForPlus(t *testing.T) {
+	serviceName := "test-slowstart"
+
+	tests := []struct {
+		upstream conf_v1alpha1.Upstream
+		lbMethod string
+		expected string
+	}{
+		{
+			upstream: conf_v1alpha1.Upstream{Service: serviceName, Port: 80, SlowStart: "", LBMethod: "least_conn"},
+			lbMethod: "least_conn",
+			expected: "",
+		},
+		{
+			upstream: conf_v1alpha1.Upstream{Service: serviceName, Port: 80, SlowStart: "10s", LBMethod: "least_conn"},
+			lbMethod: "least_conn",
+			expected: "10s",
+		},
+	}
+
+	for _, test := range tests {
+		result := generateSlowStartForPlus(test.upstream, test.lbMethod)
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("generateSlowStartForPlus returned %v, but expected %v", result, test.expected)
+		}
+	}
+}
+
+func TestCreateEndpointsFromUpstream(t *testing.T) {
+	ups := version2.Upstream{
+		Servers: []version2.UpstreamServer{
+			{
+				Address: "10.0.0.20:80",
+			},
+			{
+				Address: "10.0.0.30:80",
+			},
+		},
+	}
+
+	expected := []string{
+		"10.0.0.20:80",
+		"10.0.0.30:80",
+	}
+
+	endpoints := createEndpointsFromUpstream(ups)
+	if !reflect.DeepEqual(endpoints, expected) {
+		t.Errorf("createEndpointsFromUpstream returned %v, but expected %v", endpoints, expected)
 	}
 }
